@@ -1,0 +1,105 @@
+2025-04-09 14:21:59,882 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:49]
+2025-04-09 14:21:59,886 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:53]
+2025-04-09 14:21:59,887 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:66]
+2025-04-09 14:22:00,204 ERROR: Error listing conversations: name 'app' is not defined [in C:\AIapps\MIDAS3\app.py:92]
+Traceback (most recent call last):
+  File "C:\AIapps\MIDAS3\database.py", line 88, in get_all_conversations
+    raise RuntimeError("Database connection not established")
+RuntimeError: Database connection not established
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\AIapps\MIDAS3\app.py", line 85, in list_conversations
+    conversations = db.get_all_conversations()
+  File "C:\AIapps\MIDAS3\database.py", line 114, in get_all_conversations
+    app.logger.error(f"Database error in get_all_conversations: {str(e)}", exc_info=True)
+NameError: name 'app' is not defined
+2025-04-09 14:24:23,550 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:49]
+2025-04-09 14:24:23,551 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:53]
+2025-04-09 14:24:23,551 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:66]
+2025-04-09 14:24:23,877 ERROR: Error listing conversations: Database connection not established. Call init_app() first. [in C:\AIapps\MIDAS3\app.py:92]
+Traceback (most recent call last):
+  File "C:\AIapps\MIDAS3\app.py", line 85, in list_conversations
+    conversations = db.get_all_conversations()
+  File "C:\AIapps\MIDAS3\database.py", line 94, in get_all_conversations
+    raise RuntimeError("Database connection not established. Call init_app() first.")
+RuntimeError: Database connection not established. Call init_app() first.
+2025-04-09 14:30:19,264 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:65]
+2025-04-09 14:30:19,265 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:69]
+2025-04-09 14:30:19,265 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:82]
+2025-04-09 14:30:19,523 ERROR: Error listing conversations: (sqlite3.OperationalError) no such column: conversations.model
+[SQL: SELECT conversations.id AS conversations_id, conversations.title AS conversations_title, conversations.created_at AS conversations_created_at, conversations.updated_at AS conversations_updated_at, conversations.model AS conversations_model 
+FROM conversations ORDER BY conversations.updated_at DESC]
+(Background on this error at: https://sqlalche.me/e/20/e3q8) [in C:\AIapps\MIDAS3\app.py:108]
+Traceback (most recent call last):
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\base.py", line 1964, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\default.py", line 945, in do_execute
+    cursor.execute(statement, parameters)
+sqlite3.OperationalError: no such column: conversations.model
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\AIapps\MIDAS3\app.py", line 101, in list_conversations
+    conversations = get_all_conversations()
+  File "C:\AIapps\MIDAS3\database.py", line 60, in get_all_conversations
+    conversations = Conversation.query.order_by(Conversation.updated_at.desc()).all()
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\orm\query.py", line 2704, in all
+    return self._iter().all()  # type: ignore
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\orm\query.py", line 2858, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\orm\session.py", line 2365, in execute
+    return self._execute_internal(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\orm\session.py", line 2251, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\base.py", line 1416, in execute
+    return meth(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\sql\elements.py", line 523, in _execute_on_connection
+    return connection._execute_clauseelement(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\base.py", line 1638, in _execute_clauseelement
+    ret = self._execute_context(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\base.py", line 1843, in _execute_context
+    return self._exec_single_context(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\base.py", line 1983, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\base.py", line 2352, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\base.py", line 1964, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\Cyber Beast Tech\.conda\envs\midas3-llm\lib\site-packages\sqlalchemy\engine\default.py", line 945, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) no such column: conversations.model
+[SQL: SELECT conversations.id AS conversations_id, conversations.title AS conversations_title, conversations.created_at AS conversations_created_at, conversations.updated_at AS conversations_updated_at, conversations.model AS conversations_model 
+FROM conversations ORDER BY conversations.updated_at DESC]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+2025-04-09 14:33:14,041 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:65]
+2025-04-09 14:33:14,041 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:69]
+2025-04-09 14:33:14,042 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:82]
+2025-04-09 14:33:17,300 ERROR: Error creating conversation: create_conversation() takes 0 positional arguments but 1 was given [in C:\AIapps\MIDAS3\app.py:128]
+2025-04-09 14:34:09,119 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:65]
+2025-04-09 14:34:09,121 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:69]
+2025-04-09 14:34:09,123 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:82]
+2025-04-09 14:34:12,275 ERROR: Error creating conversation: create_conversation() takes 0 positional arguments but 1 was given [in C:\AIapps\MIDAS3\app.py:128]
+2025-04-09 14:35:00,275 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:65]
+2025-04-09 14:35:00,276 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:69]
+2025-04-09 14:35:00,276 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:82]
+2025-04-09 14:36:28,281 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:65]
+2025-04-09 14:36:28,282 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:69]
+2025-04-09 14:36:28,284 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:82]
+2025-04-09 14:37:51,587 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:67]
+2025-04-09 14:37:51,588 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:71]
+2025-04-09 14:37:51,588 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:84]
+2025-04-09 14:39:37,211 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:67]
+2025-04-09 14:39:37,212 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:71]
+2025-04-09 14:39:37,213 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:84]
+2025-04-09 14:39:59,082 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:67]
+2025-04-09 14:39:59,084 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:71]
+2025-04-09 14:39:59,084 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:84]
+2025-04-09 14:40:05,904 ERROR: Error deleting conversation: maximum recursion depth exceeded while calling a Python object [in C:\AIapps\MIDAS3\app.py:292]
+2025-04-09 14:40:08,091 INFO: Attempting to get available models... [in C:\AIapps\MIDAS3\app.py:67]
+2025-04-09 14:40:08,092 INFO: Available models: ['llama3-groq-tool-use:8b', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest'] [in C:\AIapps\MIDAS3\app.py:71]
+2025-04-09 14:40:08,093 INFO: Serialized models: [{'name': 'llama3-groq-tool-use:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}] [in C:\AIapps\MIDAS3\app.py:84]

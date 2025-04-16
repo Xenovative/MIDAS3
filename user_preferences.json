@@ -1,0 +1,12 @@
+{
+  "default_model": "llama3.1:8b",
+  "default_embedding_model": "mxbai-embed-large:latest",
+  "visible_models": [
+    "deepseek-r1:7b",
+    "phi3.5:latest",
+    "mistral:latest",
+    "llama3.1:8b",
+    "codellama:latest"
+  ],
+  "theme": "system"
+}

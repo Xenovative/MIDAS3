@@ -1,0 +1,9 @@
+Flask>=2.0
+ollama>=0.1.0
+chromadb==0.4.24 # Pinned version
+langchain==0.1.17 # Pinned version
+langchain-community==0.0.36 # Pinned version
+langchain-chroma==0.1.1 # Pinned version
+pypdf>=3.0.0
+unstructured>=0.10.0
+# Add other specific dependencies if needed, e.g., for markdown parsing if not covered by unstructured

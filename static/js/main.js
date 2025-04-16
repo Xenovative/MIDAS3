@@ -1,0 +1,3662 @@
+// DOM Elements - moved inside DOMContentLoaded to ensure elements exist
+let messageInput;
+let sendButton;
+let chatContainer;
+let modelSelect;
+let refreshModelsButton;
+let newChatButton;
+let conversationList;
+let chatTitleElement;
+let chatModelElement;
+let editTitleButton;
+let deleteConversationButton;
+let sidebarToggle;
+let sidebar;
+let chatPanel;
+let chatInfo;
+let docUploadInput;
+let fileUploadButton;
+let uploadStatus;
+let attachmentPreview;
+let attachmentPreviewFilename;
+let removeAttachmentButton;
+
+// Global variables
+let currentModel = '';
+let currentConversationId = null;
+let isGenerating = false;
+let eventSource = null;
+let messageTracker = new Set(); // Track message IDs to prevent duplicates
+let currentAttachmentFilename = null; // Track attached file for the current message draft
+let isNewConversation = false; // NEW GLOBAL VARIABLE
+
+// Global variables for preferences management
+let userPreferences = {};
+let availableModels = [];
+let availableEmbeddingModels = [];
+let workflowModels = []; // Workflow models for image generation
+
+// --- Notification Function ---
+function showNotification(message, type = 'info', duration = 3000) {
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.textContent = message;
+
+    document.body.appendChild(notification);
+
+    // Trigger fade in
+    setTimeout(() => {
+        notification.style.opacity = '1';
+        notification.style.transform = 'translateY(0)';
+    }, 10); // Short delay to allow initial styles to apply
+
+    // Set timeout to remove the notification
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transform = 'translateY(-20px)';
+        // Remove element after transition
+        setTimeout(() => {
+            notification.remove();
+        }, 500); // Match transition duration
+    }, duration);
+}
+
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', async function() {
+    // Initialize DOM elements after the document is loaded
+    messageInput = document.getElementById('message-input');
+    sendButton = document.getElementById('send-button');
+    chatContainer = document.getElementById('chat-container');
+    modelSelect = document.getElementById('model-select');
+    refreshModelsButton = document.getElementById('refresh-models');
+    newChatButton = document.getElementById('new-chat-button');
+    conversationList = document.getElementById('conversation-list');
+    chatTitleElement = document.getElementById('chat-title');
+    chatModelElement = document.getElementById('chat-model');
+    editTitleButton = document.getElementById('edit-title-button');
+    deleteConversationButton = document.getElementById('delete-conversation-button');
+    sidebarToggle = document.getElementById('sidebar-toggle');
+    sidebar = document.querySelector('.sidebar');
+    chatPanel = document.querySelector('.chat-panel');
+    chatInfo = document.querySelector('.chat-info');
+    docUploadInput = document.getElementById('doc-upload-input');
+    fileUploadButton = document.getElementById('file-upload-button');
+    uploadStatus = document.getElementById('upload-status');
+    attachmentPreview = document.getElementById('attachment-preview');
+    attachmentPreviewFilename = attachmentPreview.querySelector('span:first-child');
+    removeAttachmentButton = attachmentPreview.querySelector('.remove-attachment');
+
+    // Event listener for file input change
+    docUploadInput.addEventListener('change', function(event) {
+        const file = event.target.files[0];
+        
+        if (file) {
+            // Show attachment preview
+            attachmentPreviewFilename.textContent = file.name;
+            currentAttachmentFilename = file.name;
+            attachmentPreview.style.display = 'flex';
+        } else {
+            // Hide attachment preview if no file selected
+            attachmentPreview.style.display = 'none';
+            currentAttachmentFilename = null;
+        }
+    });
+
+    // Initialize attachment preview to hidden
+    attachmentPreview.style.display = 'none';
+
+    // Event listener for remove attachment button
+    removeAttachmentButton.addEventListener('click', removeAttachment);
+
+    // --- Ensure workflow models are loaded before loading models ---
+    await loadWorkflowModels();
+    await init();
+    
+    // Initialize preferences button
+    initializePreferences();
+    
+    // Initialize bot management
+    initializeBotManagement();
+});
+
+// Initialize the application
+async function init() {
+    // Load available models
+    await loadModels();
+    
+    // Initialize sidebar toggle
+    initSidebarToggle();
+    
+    // Load conversations
+    await loadConversations();
+    
+    // Add event listeners
+    addEventListeners();
+}
+
+// Theme toggle functionality
+function initThemeToggle() {
+    // Check for saved theme preference or use preferred color scheme
+    const savedTheme = localStorage.getItem('theme') || 
+                      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    
+    // Apply the theme
+    setTheme(savedTheme);
+    
+    // Update the toggle button icon
+    updateThemeIcon(savedTheme);
+    
+    // Add event listener to toggle button
+    themeToggle.addEventListener('click', () => {
+        const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+        const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+        
+        setTheme(newTheme);
+        updateThemeIcon(newTheme);
+        localStorage.setItem('theme', newTheme);
+    });
+}
+
+// Set the theme on the document
+function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+}
+
+// Update the theme toggle icon
+function updateThemeIcon(theme) {
+    const icon = themeToggle.querySelector('i');
+    if (theme === 'dark') {
+        icon.classList.remove('fa-moon');
+        icon.classList.add('fa-sun');
+    } else {
+        icon.classList.remove('fa-sun');
+        icon.classList.add('fa-moon');
+    }
+}
+
+// Load available models and bots
+async function loadModels() {
+    try {
+        showLoading('Loading available models and bots...');
+        
+        // Fetch models and bots concurrently
+        const [modelsResponse, botsResponse] = await Promise.all([
+            fetch('/api/models'),
+            fetch('/api/bots')
+        ]);
+        
+        const modelsData = await modelsResponse.json();
+        const botsData = await botsResponse.json();
+        
+        console.log('Model data received:', modelsData); // Debug log
+        console.log('Bots data received:', botsData); // Debug log
+        
+        // Clear existing options
+        modelSelect.innerHTML = '';
+        
+        // Add system models
+        if (modelsData.status === 'success' && modelsData.models && modelsData.models.length > 0) {
+            const systemModelsGroup = document.createElement('optgroup');
+            systemModelsGroup.label = '⚙️ System Models';
+            
+            modelsData.models.forEach(model => {
+                const option = document.createElement('option');
+                
+                // Handle both string models and object models
+                if (typeof model === 'object') {
+                    const modelName = model.name || 'Unknown Model';
+                    option.value = modelName;
+                    
+                    // Create display name with parameter size if available
+                    let displayName = modelName;
+                    if (model.details && model.details.parameter_size) {
+                        displayName += ` (${model.details.parameter_size})`;
+                    }
+                    option.textContent = displayName;
+                    
+                    // Add tooltip with additional info
+                    let tooltip = '';
+                    if (model.modified) {
+                        tooltip += `Modified: ${model.modified}\n`;
+                    }
+                    if (model.size) {
+                        const sizeGB = (model.size/1024/1024/1024).toFixed(2);
+                        tooltip += `Size: ${sizeGB}GB`;
+                    }
+                    if (tooltip) {
+                        option.title = tooltip;
+                    }
+                } else {
+                    // Simple string model
+                    option.value = model;
+                    option.textContent = model;
+                }
+                
+                systemModelsGroup.appendChild(option);
+            });
+            
+            modelSelect.appendChild(systemModelsGroup);
+        }
+        
+        // Add custom bots as models
+        if (botsData.status === 'success' && botsData.bots && botsData.bots.length > 0) {
+            const customBotsGroup = document.createElement('optgroup');
+            customBotsGroup.label = '🤖 Custom Bots';
+            
+            botsData.bots.forEach(bot => {
+                const option = document.createElement('option');
+                option.value = `bot:${bot.id}`;
+                option.textContent = bot.name;
+                
+                // Add tooltip with bot details
+                let tooltip = '';
+                if (bot.description) {
+                    tooltip += `Description: ${bot.description}\n`;
+                }
+                if (bot.base_model) {
+                    tooltip += `Base Model: ${bot.base_model}`;
+                }
+                if (tooltip) {
+                    option.title = tooltip;
+                }
+                
+                customBotsGroup.appendChild(option);
+            });
+            
+            modelSelect.appendChild(customBotsGroup);
+        }
+        
+        // Add workflow models
+        if (workflowModels.length > 0) {
+            const workflowModelsGroup = document.createElement('optgroup');
+            workflowModelsGroup.label = '🖼️ Image Generation';
+            
+            workflowModels.forEach(wf => {
+                const option = document.createElement('option');
+                option.value = 'workflow:' + wf;
+                option.textContent = wf;
+                option.dataset.imageModel = 'true';
+                workflowModelsGroup.appendChild(option);
+            });
+            
+            modelSelect.appendChild(workflowModelsGroup);
+        }
+        
+        // Set the first model as current
+        if (modelSelect.options.length > 0) {
+            currentModel = modelSelect.options[0].value;
+            modelSelect.value = currentModel;
+            
+            addMessage(`${modelSelect.options.length} models loaded`, false, 'system');
+        } else {
+            addMessage('No models available', false, 'system');
+        }
+    } catch (error) {
+        addMessage('Failed to load models and bots', false, 'system');
+        console.error('Model and bot loading error:', error);
+    } finally {
+        removeLoading();
+    }
+}
+
+// Fetch workflow files from backend and populate workflowModels array
+async function loadWorkflowModels() {
+    try {
+        const resp = await fetch('/api/workflows');
+        const data = await resp.json();
+        if (data.status === 'success' && Array.isArray(data.workflows)) {
+            workflowModels = data.workflows;
+        } else {
+            workflowModels = [];
+        }
+    } catch (err) {
+        workflowModels = [];
+    }
+}
+
+// Load conversations
+async function loadConversations(refresh = false) {
+    try {
+        showLoading('Loading conversations...');
+        
+        const response = await fetch('/api/conversations');
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            // Sort by updated_at descending
+            const sortedConversations = data.conversations.sort((a, b) => 
+                new Date(b.updated_at) - new Date(a.updated_at)
+            );
+            
+            // Get most recent 5 conversations
+            const recentConversations = sortedConversations.slice(0, 5);
+            
+            // Clear existing conversations
+            conversationList.innerHTML = '';
+            
+            // Add recent conversations
+            recentConversations.forEach(conversation => {
+                const item = document.createElement('div');
+                item.className = 'conversation-item';
+                item.dataset.id = conversation.id;
+                
+                if (conversation.id == currentConversationId) {
+                    item.classList.add('active-conversation');
+                }
+                
+                // Create title element
+                const titleEl = document.createElement('div');
+                titleEl.className = 'conversation-title';
+                titleEl.textContent = conversation.title || 'New Chat';
+                
+                // Create metadata container
+                const metaContainer = document.createElement('div');
+                metaContainer.className = 'conversation-meta';
+                
+                // Create model element
+                const modelEl = document.createElement('span');
+                modelEl.className = 'conversation-model';
+                
+                // Check if this is a bot model
+                if (conversation.model && conversation.model.startsWith('bot:')) {
+                    // Extract bot ID
+                    const botId = conversation.model.substring(4);
+                    
+                    // Set a temporary value
+                    modelEl.textContent = 'Bot';
+                    
+                    // Fetch the bot details to get its name
+                    fetch(`/api/bots/${botId}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                // Display the bot name instead of the ID
+                                modelEl.textContent = data.bot.name;
+                            } else {
+                                // Fallback if bot details can't be fetched
+                                modelEl.textContent = conversation.model;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching bot details:', error);
+                            modelEl.textContent = conversation.model;
+                        });
+                } else {
+                    // Regular model, display as is (remove any workflow: prefix)
+                    modelEl.textContent = conversation.model.replace('workflow:', '');
+                }
+                
+                // Create date element
+                const dateEl = document.createElement('span');
+                dateEl.className = 'conversation-date';
+                dateEl.textContent = new Date(conversation.updated_at).toLocaleString();
+                
+                // Add elements to container
+                metaContainer.appendChild(modelEl);
+                metaContainer.appendChild(dateEl);
+                
+                item.appendChild(titleEl);
+                item.appendChild(metaContainer);
+                
+                // Add buttons container
+                const buttonsContainer = document.createElement('div');
+                buttonsContainer.className = 'conversation-buttons';
+                
+                // Add rename button
+                const renameButton = document.createElement('button');
+                renameButton.className = 'rename-conversation-button';
+                renameButton.innerHTML = '<i class="fas fa-edit"></i>';
+                renameButton.title = 'Rename';
+                renameButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    renameConversation(conversation.id, conversation.title);
+                });
+                
+                // Add delete button
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'delete-conversation-button';
+                deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+                deleteButton.title = 'Delete';
+                deleteButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    currentConversationToDelete = conversation.id;
+                    document.getElementById('delete-confirm-modal').style.display = 'flex';
+                });
+                
+                buttonsContainer.appendChild(renameButton);
+                buttonsContainer.appendChild(deleteButton);
+                item.appendChild(buttonsContainer);
+                
+                // Add click handler
+                item.addEventListener('click', (e) => {
+                    // Only load conversation if clicking on the item itself, not buttons
+                    if (e.target === item || e.target.classList.contains('conversation-title') || 
+                        e.target.classList.contains('conversation-meta')) {
+                        loadConversation(conversation.id);
+                    }
+                });
+                
+                conversationList.appendChild(item);
+            });
+            
+            // Add 'More' button if there are more conversations
+            if (sortedConversations.length > 5) {
+                const moreButton = document.createElement('div');
+                moreButton.className = 'more-conversations-button';
+                moreButton.textContent = '... More Chats';
+                moreButton.addEventListener('click', showAllConversations);
+                conversationList.appendChild(moreButton);
+            }
+        } else {
+            addMessage(`Error: ${data.message}`, false, 'system');
+        }
+    } catch (error) {
+        console.error('Error loading conversations:', error);
+        conversationList.innerHTML = '<div class="empty-message">Failed to load conversations</div>';
+    } finally {
+        removeLoading();
+    }
+}
+
+// Load a conversation
+async function loadConversation(conversationId) {
+    try {
+        showLoading('Loading conversation...');
+        
+        // Clear chat and show loading
+        chatContainer.innerHTML = '';
+        
+        const response = await fetch(`/api/conversations/${conversationId}`);
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            currentConversationId = conversationId;
+            
+            // Update UI with loaded conversation
+            updatePageTitle(data.conversation.title);
+            updateHeaderInfo(data.conversation.title, data.conversation.model);
+            
+            // Set the current model
+            currentModel = data.conversation.model;
+            
+            // Update model selection in dropdown
+            if (modelSelect) {
+                // Try to find the model in the dropdown
+                let modelFound = false;
+                for (let i = 0; i < modelSelect.options.length; i++) {
+                    if (modelSelect.options[i].value === data.conversation.model) {
+                        modelSelect.selectedIndex = i;
+                        modelFound = true;
+                        break;
+                    }
+                }
+                
+                // If model not found in dropdown (might be a bot that's not loaded yet)
+                if (!modelFound) {
+                    // Create a temporary option if needed
+                    const tempOption = document.createElement('option');
+                    tempOption.value = data.conversation.model;
+                    
+                    // Check if it's a bot model
+                    if (data.conversation.model.startsWith('bot:')) {
+                        const botId = data.conversation.model.substring(4);
+                        tempOption.textContent = `Loading bot...`;
+                        
+                        // Fetch bot details
+                        fetch(`/api/bots/${botId}`)
+                            .then(response => response.json())
+                            .then(botData => {
+                                if (botData.status === 'success') {
+                                    tempOption.textContent = botData.bot.name;
+                                } else {
+                                    tempOption.textContent = data.conversation.model;
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error fetching bot details:', error);
+                                tempOption.textContent = data.conversation.model;
+                            });
+                    } else {
+                        tempOption.textContent = data.conversation.model;
+                    }
+                    
+                    modelSelect.appendChild(tempOption);
+                    modelSelect.value = data.conversation.model;
+                }
+            }
+            
+            // Render messages, passing the message ID from the database
+            data.messages.forEach(message => {
+                console.log('Loading message from database:', message);
+                
+                // Handle image data properly
+                let processedImages = message.images;
+                
+                // If images is a string (JSON that wasn't parsed), try to parse it
+                if (typeof message.images === 'string') {
+                    try {
+                        processedImages = JSON.parse(message.images);
+                        console.log('Parsed image data from string:', processedImages);
+                    } catch (e) {
+                        console.error('Failed to parse image data:', e);
+                    }
+                }
+                
+                // Log the processed image data
+                if (processedImages) {
+                    console.log('Processed images:', processedImages);
+                }
+                
+                addMessage(message.content, false, message.role, message.thinking, message.id, message.attachment_filename, processedImages);
+            });
+            
+            // Update active conversation in sidebar
+            document.querySelectorAll('.conversation-item').forEach(item => {
+                item.classList.remove('active-conversation');
+                if (item.dataset.id === conversationId.toString()) {
+                    item.classList.add('active-conversation');
+                }
+            });
+        } else {
+            addMessage(`Error: ${data.message}`, false, 'system');
+        }
+    } catch (error) {
+        console.error('Error loading conversation:', error);
+        addMessage('Failed to load conversation', false, 'system');
+    } finally {
+        removeLoading();
+    }
+}
+
+// Rename a conversation
+async function renameConversation(conversationId, currentTitle) {
+    const newTitle = prompt('Enter a new title for this conversation:', currentTitle);
+    
+    if (!newTitle || newTitle === currentTitle) return;
+    
+    try {
+        // Update the conversation title
+        const response = await fetch(`/api/conversations/${conversationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: newTitle
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            loadConversations(true); // Force refresh
+        } else {
+            addMessage(`Error: ${data.message}`, false, 'system');
+        }
+    } catch (error) {
+        addMessage('Failed to rename conversation', false, 'system');
+        console.error('Error renaming conversation:', error);
+    }
+}
+
+// Delete a conversation
+async function deleteConversation(id) {
+    try {
+        const response = await fetch(`/api/conversations/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to delete conversation');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Error:', error);
+        throw error;
+    }
+}
+
+// Show loading message
+function showLoading(message) {
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'system-message loading-message';
+    loadingDiv.textContent = message || 'Loading...';
+    loadingDiv.id = 'loading-message';
+    chatContainer.appendChild(loadingDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+// Remove loading message
+function removeLoading() {
+    const loadingMessage = document.getElementById('loading-message');
+    if (loadingMessage) {
+        loadingMessage.remove();
+    }
+}
+
+// Loading Animation Control
+function showLoading(message = '') {
+    const loadingAnimation = document.getElementById('loading-animation');
+    const loadingMessage = document.getElementById('loading-message');
+    
+    if (loadingAnimation) loadingAnimation.style.display = 'block';
+    if (loadingMessage) loadingMessage.textContent = message;
+}
+
+function removeLoading() {
+    const loadingAnimation = document.getElementById('loading-animation');
+    const loadingMessage = document.getElementById('loading-message');
+    
+    if (loadingAnimation) loadingAnimation.style.display = 'none';
+    if (loadingMessage) loadingMessage.textContent = '';
+}
+
+// Add markdown renderer with thinking process support
+function renderMarkdown(text) {
+    // Extract thinking process if present
+    let thinkingProcess = '';
+    let mainText = text;
+    const thinkingMatch = text.match(/<think>([\s\S]*?)<\/think>/);
+    
+    if (thinkingMatch) {
+        thinkingProcess = thinkingMatch[1];
+        // Remove thinking tags from main text
+        mainText = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+    }
+    
+    // Simple markdown conversion for main text
+    let renderedText = '';
+    
+    // Add thinking process first if present
+    if (thinkingProcess) {
+        renderedText += `<div class="mb-3 p-2 bg-gray-100 text-gray-700 text-sm rounded">
+            <details open>
+                <summary class="cursor-pointer font-bold">Thinking Process</summary>
+                <div class="mt-2 whitespace-pre-wrap thinking-content">${thinkingProcess.replace(/\n/g, '<br>')}</div>
+            </details>
+        </div>`;
+    }
+    
+    // Then add the main response
+    renderedText += `<div class="main-response">${formatMarkdown(mainText)}</div>`;
+    
+    return renderedText;
+}
+
+// Scroll to bottom of chat
+function scrollToBottom() {
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+// Function to generate a title based on the first message
+async function generateConversationTitle(conversationId, message, model) {
+    try {
+        // Request the server to generate a title based on the first message
+        const response = await fetch(`/api/conversations/${conversationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                generate_title: true
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok && data.status === 'success') {
+            const title = data.title;
+            
+            // Update page title and header
+            updatePageTitle(title);
+            updateHeaderInfo(title, model);
+            
+            // Reload conversations to show new title
+            loadConversations(true); // Force refresh
+            
+            return title;
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error generating title:', error);
+        return null;
+    }
+}
+
+// Update the page title with the conversation title
+function updatePageTitle(title) {
+    document.title = title ? `${title} - MIDAS3.0` : 'MIDAS3.0';
+    
+    // If there's a header title element, update it too
+    if (chatTitleElement) {
+        chatTitleElement.textContent = title || 'New Chat';
+    }
+}
+
+// Update header info with current chat title and model
+function updateHeaderInfo(title, model) {
+    // Update title
+    if (chatTitleElement) {
+        chatTitleElement.textContent = title || 'New Chat';
+    }
+    
+    // Update model
+    if (chatModelElement && model) {
+        // Check if this is a bot model
+        if (model.startsWith('bot:')) {
+            // Extract bot ID
+            const botId = model.substring(4);
+            
+            // Fetch the bot details to get its name
+            fetch(`/api/bots/${botId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Display the bot name instead of the ID
+                        chatModelElement.textContent = data.bot.name;
+                    } else {
+                        // Fallback if bot details can't be fetched
+                        chatModelElement.textContent = model;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching bot details:', error);
+                    chatModelElement.textContent = model;
+                });
+        } else {
+            // Regular model, display as is (remove any workflow: prefix)
+            chatModelElement.textContent = model.replace('workflow:', '');
+        }
+    } else if (chatModelElement) {
+        chatModelElement.textContent = 'Select a model';
+    }
+}
+
+// Add event listeners
+function addEventListeners() {
+    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    refreshModelsButton.addEventListener('click', loadModels);
+    newChatButton.addEventListener('click', async () => {
+        await createNewConversation();
+    });
+    deleteConversationButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        if (!currentConversationId) {
+            addMessage('No conversation selected', false, 'system');
+            return;
+        }
+        
+        currentConversationToDelete = currentConversationId;
+        document.getElementById('delete-confirm-modal').style.display = 'flex';
+    });
+    editTitleButton.addEventListener('click', editConversationTitle);
+    modelSelect.addEventListener('change', updateConversationModel);
+    messageInput.focus();
+
+    // Add listener for document upload button
+    if (fileUploadButton) {
+        fileUploadButton.addEventListener('click', () => {
+            docUploadInput.click();
+        });
+    }
+    
+    // Add listener for file selection change
+    if (docUploadInput) {
+        docUploadInput.addEventListener('change', () => {
+            if (docUploadInput.files.length > 0) {
+                handleDocumentUpload();
+            }
+        });
+    }
+}
+
+// Delete the current conversation
+async function deleteCurrentConversation() {
+    if (!currentConversationId) {
+        addMessage('No active conversation to delete', false, 'system');
+        return;
+    }
+    
+    // Confirm deletion
+    if (!confirm('Are you sure you want to delete this conversation? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        // Delete the conversation
+        const response = await deleteConversation(currentConversationId);
+        
+        if (response) {
+            // Create a new conversation
+            await createNewConversation();
+            
+            // Reload conversations list
+            await loadConversations();
+            
+            // Show success message
+            addMessage('Conversation deleted successfully', false, 'system');
+        } else {
+            addMessage('Failed to delete conversation', false, 'system');
+        }
+    } catch (error) {
+        console.error('Error deleting conversation:', error);
+        addMessage('Error deleting conversation', false, 'system');
+    }
+}
+
+// Edit conversation title
+async function editConversationTitle() {
+    if (!currentConversationId) {
+        addMessage('No active conversation to rename', false, 'system');
+        return;
+    }
+    
+    // Get current title
+    const currentTitle = chatTitleElement.textContent;
+    
+    // Prompt for new title
+    const newTitle = prompt('Enter a new title for this conversation:', currentTitle);
+    
+    // If cancelled or empty, do nothing
+    if (!newTitle || newTitle.trim() === '') {
+        return;
+    }
+    
+    try {
+        // Update the conversation title
+        const response = await fetch(`/api/conversations/${currentConversationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: newTitle.trim()
+            })
+        });
+        
+        if (response.ok) {
+            // Update page title and header
+            updatePageTitle(newTitle.trim());
+            updateHeaderInfo(newTitle.trim(), chatModelElement.textContent);
+            
+            // Reload conversations to show new title
+            loadConversations(true); // Force refresh
+            
+            // Show success message
+            addMessage(`Conversation renamed to: ${newTitle.trim()}`, false, 'system');
+        } else {
+            addMessage('Failed to rename conversation', false, 'system');
+        }
+    } catch (error) {
+        console.error('Error renaming conversation:', error);
+        addMessage('Error renaming conversation', false, 'system');
+    }
+}
+
+// Initialize sidebar toggle functionality
+function initSidebarToggle() {
+    console.log('Initializing sidebar toggle with button:', sidebarToggle);
+    
+    // Check if sidebar toggle button exists
+    if (!sidebarToggle) {
+        console.error('Sidebar toggle button not found!');
+        return;
+    }
+    
+    // Check for saved sidebar state
+    const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+    console.log('Saved sidebar state - collapsed:', sidebarCollapsed);
+    
+    // Set the initial toggle icon based on saved state
+    const toggleIcon = document.getElementById('sidebar-toggle-icon');
+    if (toggleIcon && sidebarCollapsed) {
+        toggleIcon.src = '/static/assets/xeno.png';
+    }
+    
+    // Apply the saved state
+    if (sidebarCollapsed) {
+        toggleSidebar(false); // Don't save state again
+    }
+    
+    // Add event listener to toggle button
+    sidebarToggle.addEventListener('click', () => {
+        console.log('Sidebar toggle clicked');
+        toggleSidebar(true); // Save state
+    });
+    
+    console.log('Sidebar toggle initialized successfully');
+}
+
+// Toggle sidebar visibility
+function toggleSidebar(saveState = true) {
+    console.log('Toggling sidebar - elements:', {sidebar, chatPanel, chatInfo});
+    
+    if (!sidebar || !chatPanel) {
+        console.error('Required elements for sidebar toggle not found!');
+        return;
+    }
+    
+    const isCollapsed = sidebar.classList.toggle('sidebar-collapsed');
+    chatPanel.classList.toggle('sidebar-collapsed');
+    
+    console.log('Sidebar collapsed state:', isCollapsed);
+    
+    // Update the toggle button image
+    const toggleIcon = document.getElementById('sidebar-toggle-icon');
+    if (toggleIcon) {
+        if (isCollapsed) {
+            toggleIcon.src = '/static/assets/xeno.png';
+            
+            // No longer need to adjust chatInfo position via JS
+            // if (chatInfo) chatInfo.style.left = '100px'; 
+        } else {
+            toggleIcon.src = '/static/assets/bigxeno.png';
+            
+            // No longer need to adjust chatInfo position via JS
+            // if (chatInfo) chatInfo.style.left = '280px';
+        }
+    }
+    
+    // Save the state if requested
+    if (saveState) {
+        localStorage.setItem('sidebarCollapsed', isCollapsed);
+        console.log('Saved sidebar state:', isCollapsed);
+    }
+}
+
+// Initialize delete confirmation modal
+const deleteModal = document.getElementById('delete-confirm-modal');
+const confirmDeleteBtn = document.getElementById('confirm-delete');
+const cancelDeleteBtn = document.getElementById('cancel-delete');
+let currentConversationToDelete = null;
+
+// Handle delete button clicks
+document.querySelectorAll('[id^="delete-conversation"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        currentConversationToDelete = currentConversationId;
+        deleteModal.style.display = 'flex';
+    });
+});
+
+// Confirm delete
+confirmDeleteBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (currentConversationToDelete) {
+        try {
+            await deleteConversation(currentConversationToDelete);
+            if (currentConversationId === currentConversationToDelete) {
+                currentConversationId = null;
+                messageInput.value = '';
+                clearChatPanel();
+                updateTopBar(); // Refresh top bar
+            }
+            loadConversations();
+        } catch (error) {
+            console.error('Error deleting conversation:', error);
+        } finally {
+            deleteModal.style.display = 'none';
+            currentConversationToDelete = null;
+        }
+    }
+});
+
+// Cancel delete
+cancelDeleteBtn.addEventListener('click', () => {
+    deleteModal.style.display = 'none';
+    currentConversationToDelete = null;
+});
+
+// Close modal when clicking outside
+window.addEventListener('click', (e) => {
+    if (e.target === deleteModal) {
+        deleteModal.style.display = 'none';
+        currentConversationToDelete = null;
+    }
+});
+
+// Clear chat panel
+function clearChatPanel() {
+    chatContainer.innerHTML = '';
+    messageHistory = [];
+    lastMessageId = 0;
+}
+
+// Update top bar
+function updateTopBar() {
+    updatePageTitle('');
+    updateHeaderInfo('', '');
+}
+
+// Update conversation model
+async function updateConversationModel() {
+    const newModel = modelSelect.value;
+    currentModel = newModel;
+    
+    // Check if this is a bot model
+    if (newModel.startsWith('bot:')) {
+        // Extract bot ID
+        const botId = newModel.substring(4);
+        
+        // Set a temporary loading indicator
+        chatModelElement.textContent = 'Loading bot...';
+        
+        // Fetch the bot details to get its name
+        try {
+            const botResponse = await fetch(`/api/bots/${botId}`);
+            const botData = await botResponse.json();
+            
+            if (botData.status === 'success') {
+                // Display the bot name instead of the ID without the "Bot:" prefix
+                chatModelElement.textContent = botData.bot.name;
+            } else {
+                // Fallback if bot details can't be fetched
+                chatModelElement.textContent = newModel.replace('bot:', '');
+            }
+        } catch (error) {
+            console.error('Error fetching bot details:', error);
+            chatModelElement.textContent = newModel.replace('bot:', '');
+        }
+    } else {
+        // Update UI immediately for regular models (remove any workflow: prefix)
+        chatModelElement.textContent = newModel.replace('workflow:', '');
+    }
+    
+    // If there's an active conversation, update it in the database
+    if (currentConversationId) {
+        try {
+            // Update the conversation model
+            const response = await fetch(`/api/conversations/${currentConversationId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: newModel
+                })
+            });
+            
+            if (!response.ok) {
+                console.error('Failed to update conversation model');
+            }
+            
+            // Reload conversations to reflect the change
+            loadConversations(true);
+            
+        } catch (error) {
+            console.error('Error updating conversation model:', error);
+        }
+    }
+    
+    // Remove any existing image commands help button
+    const existingHelpButton = document.querySelector('.image-commands-help');
+    if (existingHelpButton) {
+        existingHelpButton.remove();
+    }
+}
+
+// Show all conversations in a modal
+async function showAllConversations() {
+    try {
+        showLoading('Loading all conversations...');
+        
+        // Create modal container
+        const modal = document.createElement('div');
+        modal.className = 'conversations-modal';
+        
+        // Create modal content
+        const modalContent = document.createElement('div');
+        modalContent.className = 'conversations-modal-content';
+        
+        // Add close button
+        const closeButton = document.createElement('span');
+        closeButton.className = 'close-modal';
+        closeButton.innerHTML = '&times;';
+        closeButton.addEventListener('click', () => modal.remove());
+        modalContent.appendChild(closeButton);
+        
+        // Add title
+        const title = document.createElement('h3');
+        title.textContent = 'All Conversations';
+        modalContent.appendChild(title);
+        
+        // Fetch all conversations
+        const response = await fetch('/api/conversations');
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            // Sort by updated_at descending
+            const sortedConversations = data.conversations.sort((a, b) => 
+                new Date(b.updated_at) - new Date(a.updated_at)
+            );
+            
+            // Create list container
+            const listContainer = document.createElement('div');
+            listContainer.className = 'all-conversations-list';
+            
+            sortedConversations.forEach(conversation => {
+                const item = document.createElement('div');
+                item.className = 'conversation-item';
+                item.dataset.id = conversation.id;
+                
+                if (conversation.id == currentConversationId) {
+                    item.classList.add('active-conversation');
+                }
+                
+                // Create title element
+                const titleEl = document.createElement('div');
+                titleEl.className = 'conversation-title';
+                titleEl.textContent = conversation.title || 'New Chat';
+                
+                // Create metadata container
+                const metaContainer = document.createElement('div');
+                metaContainer.className = 'conversation-meta';
+                
+                // Create model element
+                const modelEl = document.createElement('span');
+                modelEl.className = 'conversation-model';
+                
+                // Check if this is a bot model
+                if (conversation.model && conversation.model.startsWith('bot:')) {
+                    // Extract bot ID
+                    const botId = conversation.model.substring(4);
+                    
+                    // Set a temporary value
+                    modelEl.textContent = 'Bot';
+                    
+                    // Fetch the bot details to get its name
+                    fetch(`/api/bots/${botId}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                // Display the bot name instead of the ID
+                                modelEl.textContent = data.bot.name;
+                            } else {
+                                // Fallback if bot details can't be fetched
+                                modelEl.textContent = conversation.model;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching bot details:', error);
+                            modelEl.textContent = conversation.model;
+                        });
+                } else {
+                    // Regular model, display as is (remove any workflow: prefix)
+                    modelEl.textContent = conversation.model.replace('workflow:', '');
+                }
+                
+                // Create date element
+                const dateEl = document.createElement('span');
+                dateEl.className = 'conversation-date';
+                dateEl.textContent = new Date(conversation.updated_at).toLocaleString();
+                
+                // Add elements to container
+                metaContainer.appendChild(modelEl);
+                metaContainer.appendChild(dateEl);
+                
+                item.appendChild(titleEl);
+                item.appendChild(metaContainer);
+                
+                // Add buttons container
+                const buttonsContainer = document.createElement('div');
+                buttonsContainer.className = 'conversation-buttons';
+                
+                // Add rename button
+                const renameButton = document.createElement('button');
+                renameButton.className = 'rename-conversation-button';
+                renameButton.innerHTML = '<i class="fas fa-edit"></i>';
+                renameButton.title = 'Rename';
+                renameButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    renameConversation(conversation.id, conversation.title);
+                });
+                
+                // Add delete button
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'delete-conversation-button';
+                deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+                deleteButton.title = 'Delete';
+                deleteButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    currentConversationToDelete = conversation.id;
+                    document.getElementById('delete-confirm-modal').style.display = 'flex';
+                });
+                
+                buttonsContainer.appendChild(renameButton);
+                buttonsContainer.appendChild(deleteButton);
+                item.appendChild(buttonsContainer);
+                
+                // Add click handler
+                item.addEventListener('click', (e) => {
+                    // Only load conversation if clicking on the item itself, not buttons
+                    if (e.target === item || e.target.classList.contains('conversation-title') || 
+                        e.target.classList.contains('conversation-meta')) {
+                        loadConversation(conversation.id);
+                        modal.remove();
+                    }
+                });
+                
+                listContainer.appendChild(item);
+            });
+            
+            modalContent.appendChild(listContainer);
+        }
+        
+        modal.appendChild(modalContent);
+        document.body.appendChild(modal);
+        
+        // Close modal when clicking outside
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    } catch (error) {
+        console.error('Error loading all conversations:', error);
+    } finally {
+        removeLoading();
+    }
+}
+
+// Track messages to prevent duplicates
+let lastMessageId = 0;
+let messageHistory = [];
+
+function addMessageButtons(messageElement, role) {
+    const actionsContainer = document.createElement('div');
+    actionsContainer.className = 'message-actions'; // CSS class handles positioning, display, gap, etc.
+
+    // Copy button
+    const copyBtn = document.createElement('button');
+    copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
+    copyBtn.title = 'Copy';
+    copyBtn.style.cursor = 'pointer';
+    copyBtn.addEventListener('click', () => {
+        let textToCopy = '';
+        if (role === 'assistant') {
+            // Try to get text from main-response first, fallback to whole element
+            const mainResponse = messageElement.querySelector('.main-response');
+            textToCopy = mainResponse ? mainResponse.innerText : messageElement.innerText;
+        } else {
+             // For user/system messages, get the whole innerText
+            textToCopy = messageElement.innerText;
+             // Remove the button text if it got included
+            const buttonText = actionsContainer.innerText;
+            if (textToCopy.endsWith(buttonText)) {
+                textToCopy = textToCopy.slice(0, -buttonText.length).trim();
+            }
+        }
+        navigator.clipboard.writeText(textToCopy).then(() => {
+             // Show notification instead of changing icon
+             showNotification('Copied to clipboard!', 'success');
+        }).catch(err => {
+            console.error('Copy failed', err);
+            showNotification('Copy failed.', 'error');
+        });
+    });
+
+    // Share button
+    const shareBtn = document.createElement('button');
+    shareBtn.innerHTML = '<i class="fas fa-share"></i>';
+    shareBtn.title = 'Share';
+    shareBtn.style.cursor = 'pointer';
+    shareBtn.addEventListener('click', () => {
+        let textToShare = '';
+         if (role === 'assistant') {
+            const mainResponse = messageElement.querySelector('.main-response');
+            textToShare = mainResponse ? mainResponse.innerText : messageElement.innerText;
+        } else {
+            textToShare = messageElement.innerText;
+            const buttonText = actionsContainer.innerText;
+            if (textToShare.endsWith(buttonText)) {
+                textToShare = textToShare.slice(0, -buttonText.length).trim();
+            }
+        }
+        if (navigator.share) {
+            navigator.share({
+                text: textToShare
+            }).catch(err => {
+                console.error('Share failed', err);
+                // Show notification only if share fails and it's not an AbortError
+                if (err.name !== 'AbortError') {
+                    showNotification('Could not share message.', 'error');
+                }
+            });
+        } else {
+            // Fallback for browsers that don't support navigator.share
+            navigator.clipboard.writeText(textToShare).then(() => {
+                showNotification('Message copied. Share it anywhere!', 'info');
+            }).catch(err => {
+                console.error('Copy for share failed', err);
+                showNotification('Could not copy message.', 'error');
+            });
+        }
+    });
+
+    // Delete button
+    const deleteBtn = document.createElement('button');
+    deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+    deleteBtn.title = 'Delete';
+    deleteBtn.style.cursor = 'pointer';
+    deleteBtn.addEventListener('click', async () => {
+        const messageDbId = messageElement.dataset.messageId;
+
+        if (messageDbId) {
+            // If we have a database ID, try to delete from backend
+            try {
+                const response = await fetch(`/api/messages/${messageDbId}`, {
+                    method: 'DELETE'
+                });
+                if (response.ok) {
+                    console.log(`Message ${messageDbId} deleted from backend.`);
+                    messageElement.remove(); // Remove from UI on success
+                    showNotification('Message deleted.', 'info'); // Show notification on success
+                } else {
+                    const errorData = await response.json();
+                    console.error(`Failed to delete message ${messageDbId} from backend:`, errorData.message);
+                    showNotification(`Error deleting message: ${errorData.message}`, 'error');
+                }
+            } catch (error) {
+                console.error(`Network or other error deleting message ${messageDbId}:`, error);
+                showNotification('Error deleting message. Check connection.', 'error');
+    }
+        } else {
+            // If no DB ID, just remove from UI (message wasn't saved or ID wasn't retrieved)
+            console.log('Removing message from UI only (no DB ID found).');
+            messageElement.remove();
+            showNotification('Message removed from view.', 'info'); // Notify user it's only UI removal
+        }
+    });
+
+    actionsContainer.appendChild(copyBtn);
+    actionsContainer.appendChild(shareBtn);
+    actionsContainer.appendChild(deleteBtn);
+    messageElement.appendChild(actionsContainer);
+}
+
+// Function to add a message to the chat
+function addMessage(content, isLoading = false, role = 'user', thinking = '', messageId = null, attachmentFilename = null, images = null) { 
+    // Skip if this is a duplicate of the last message
+    if (messageHistory.length > 0 && 
+        messageHistory[messageHistory.length-1].content === content &&
+        messageHistory[messageHistory.length-1].isUser === (role === 'user')) {
+        return;
+    }
+
+    // Use the passed messageId (from DB) if available, otherwise null
+    const dbId = messageId;
+    // Use a unique DOM ID based on role and DB ID (if available) or timestamp
+    const domId = `message-${role}-${dbId || Date.now()}`;
+
+    // Note: messageHistory uses its own internal ID for UI tracking, not necessarily the DB ID
+    const historyId = ++lastMessageId;
+    messageHistory.push({
+        id: historyId, 
+        content, 
+        isUser: role === 'user', 
+        type: role, 
+        thinking, 
+        dbId: dbId,
+        attachmentFilename: attachmentFilename,
+        images: images
+    });
+
+    const messageElement = document.createElement('div');
+    messageElement.id = domId; // Use the unique DOM ID
+    messageElement.className = `${role}-message`;
+    if (dbId) {
+        messageElement.dataset.messageId = dbId; // Store the actual DB message ID
+    }
+    
+    if (role === 'assistant') {
+        // For assistant messages, always create thinking and response containers
+        // Thinking element first (above the response)
+        if (thinking) {
+            const thinkingElement = document.createElement('details');
+            thinkingElement.className = 'thinking';
+            thinkingElement.open = userPreferences.show_thinking || false;
+            
+            const summary = document.createElement('summary');
+            summary.textContent = 'Thinking Process';
+            thinkingElement.appendChild(summary);
+            
+            const thinkingContentEl = document.createElement('div');
+            thinkingContentEl.className = 'thinking-content';
+            thinkingContentEl.innerHTML = renderMarkdown(thinking);
+            thinkingElement.appendChild(thinkingContentEl);
+            
+            messageElement.appendChild(thinkingElement);
+        }
+        
+        // Check if this message has images
+        if (images && Array.isArray(images) && images.length > 0 && images[0]) {
+            console.log('Rendering message with images:', images);
+            console.log('First image type:', typeof images[0]);
+            console.log('First image length:', images[0] ? images[0].length : 'null');
+            
+            // Create a container for the image and buttons
+            const imageContainer = document.createElement('div');
+            imageContainer.className = 'generated-image-container';
+            
+            // Add a scaled-down image (max height 350px)
+            const img = document.createElement('img');
+            img.src = `data:image/png;base64,${images[0]}`; // Use the first image
+            img.className = 'generated-image';
+            img.alt = 'Generated Image';
+            img.style.maxHeight = '350px';
+            imageContainer.appendChild(img);
+            
+            // Create buttons container
+            const actionsContainer = document.createElement('div');
+            actionsContainer.className = 'message-actions image-actions';
+            
+            // View full image button
+            const viewBtn = document.createElement('button');
+            viewBtn.innerHTML = '<i class="fas fa-search-plus"></i>';
+            viewBtn.title = 'View Full Image';
+            viewBtn.addEventListener('click', () => {
+                // Open image in new window or tab
+                const win = window.open();
+                win.document.write(`
+                    <html>
+                        <head>
+                            <title>Full Image</title>
+                            <style>
+                                body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
+                                img { max-width: 100%; max-height: 100vh; }
+                            </style>
+                        </head>
+                            <body>
+                                <img src="data:image/png;base64,${images[0]}" />
+                            </body>
+                        </html>
+                    `);
+            });
+            actionsContainer.appendChild(viewBtn);
+            
+            // Download button
+            const dlBtn = document.createElement('button');
+            dlBtn.innerHTML = '<i class="fas fa-download"></i>';
+            dlBtn.title = 'Download Image';
+            dlBtn.addEventListener('click', () => {
+                // Create an anchor element to download the image
+                const a = document.createElement('a');
+                a.href = `data:image/png;base64,${images[0]}`;
+                a.download = attachmentFilename || 'generated.png';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            });
+            actionsContainer.appendChild(dlBtn);
+            
+            // Add buttons to the container
+            imageContainer.appendChild(actionsContainer);
+            
+            // Add workflow info if available
+            if (content.includes('Generated image using workflow:')) {
+                const workflowInfo = document.createElement('div');
+                workflowInfo.className = 'workflow-info';
+                workflowInfo.textContent = content;
+                workflowInfo.style.fontSize = '0.8em';
+                workflowInfo.style.color = 'var(--text-color-muted)';
+                workflowInfo.style.marginTop = '8px';
+                imageContainer.appendChild(workflowInfo);
+            }
+            
+            // Add seed information if available
+            if (content.includes('Seed:')) {
+                const seedInfo = document.createElement('div');
+                seedInfo.className = 'seed-info';
+                seedInfo.textContent = content;
+                seedInfo.style.fontSize = '0.8em';
+                seedInfo.style.color = 'var(--text-color-muted)';
+                seedInfo.style.marginTop = '8px';
+                imageContainer.appendChild(seedInfo);
+            }
+            
+            // Replace loading with the image container
+            messageElement.appendChild(imageContainer);
+            
+            // Enable image overlay
+            enableImageOverlay(img);
+        } else {
+            // Main response container (below thinking)
+            const mainResponse = document.createElement('div');
+            mainResponse.className = 'main-response';
+            
+            if (isLoading) {
+                const loadingIndicator = document.createElement('div');
+                loadingIndicator.className = 'loading-indicator';
+                loadingIndicator.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Thinking...';
+                mainResponse.appendChild(loadingIndicator);
+            } else {
+                mainResponse.innerHTML = renderMarkdown(content);
+            }
+            
+            messageElement.appendChild(mainResponse);
+        }
+    } else if (role === 'user') {
+        // For user messages, display content and attachment if present
+        messageElement.innerHTML = content;
+        
+        // Add attachment display if there's an attachment filename
+        if (attachmentFilename) {
+            const attachmentDiv = document.createElement('div');
+            attachmentDiv.className = 'message-attachment';
+            attachmentDiv.innerHTML = `
+                <i class="fas fa-paperclip"></i> 
+                <span class="attachment-filename">${attachmentFilename}</span>
+            `;
+            messageElement.appendChild(attachmentDiv);
+        }
+    } else {
+        // For system messages, just set innerHTML
+        messageElement.innerHTML = content;
+}
+
+    // Add buttons only for user and assistant messages
+    if (role !== 'system') {
+        addMessageButtons(messageElement, role);
+    }
+
+    chatContainer.appendChild(messageElement);
+    scrollToBottom();
+    
+    return messageElement;
+}
+
+// Format markdown without extracting thinking tags
+function formatMarkdown(text) {
+    // Clean up various answer prefixes
+    // Handle at the beginning of text
+    text = text.replace(/^(\s*)(Answer:|Final Answer:|My answer:|Here's my answer:|The answer is:)(\s*)/i, '');
+    
+    // Handle after a newline
+    text = text.replace(/\n(\s*)(Answer:|Final Answer:|My answer:|Here's my answer:|The answer is:)(\s*)/gi, '\n');
+    
+    return text
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // bold
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')              // italic
+        .replace(/`([^`]+)`/g, '<code>$1</code>')          // code
+        .replace(/\n/g, '<br>');                           // newlines
+}
+
+// Helper: Detect if the selected model/bot is image-capable (ComfyUI bot or workflow model)
+function isImageModel(selectedModel, botDetails = null) {
+    // Workflow models: any model that starts with 'workflow:'
+    if (selectedModel.startsWith('workflow:')) return true;
+    // For bots: treat any bot whose name or base_model contains 'comfyui' or 'diffusion' as image model
+    if (selectedModel.startsWith('bot:') && botDetails) {
+        const name = (botDetails.name || '').toLowerCase();
+        const base = (botDetails.base_model || '').toLowerCase();
+        return name.includes('comfyui') || name.includes('diffusion') || base.includes('comfyui') || base.includes('diffusion');
+    }
+    return false;
+}
+
+// Send message
+async function sendMessage() {
+    const message = messageInput.value.trim();
+    // Don't send if empty (unless there's an attachment)
+    if (!message && !currentAttachmentFilename) return;
+    
+    // Create conversation if none exists
+    if (!currentConversationId) {
+        await createNewConversation();
+    }
+    
+    // Clear input and reset height
+    messageInput.value = '';
+    messageInput.style.height = 'auto';
+    
+    // Add user message to UI
+    const userMessageElement = addMessage(message, false, 'user', '', null, currentAttachmentFilename);
+    
+    // Remember attachment filename before clearing
+    const sentAttachmentFilename = currentAttachmentFilename;
+    
+    // Start generating response
+    isGenerating = true;
+    updateSendButtonState();
+    
+    // Get the selected model
+    const selectedModel = modelSelect.value;
+    
+    // Bot-specific configurations
+    let botDetails = null;
+    let modelConfig = { model: selectedModel };
+    
+    // If this is a bot model, fetch its details
+    if (selectedModel.startsWith('bot:')) {
+        try {
+            const botId = selectedModel.substring(4); // Remove 'bot:' prefix
+            const response = await fetch(`/api/bots/${botId}`);
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                botDetails = data.bot;
+                
+                // Extract bot configuration for API request
+                modelConfig = {
+                    model: botDetails.base_model,
+                    system_prompt: botDetails.system_prompt || '',
+                    parameters: botDetails.parameters || {},
+                    knowledge_files: botDetails.knowledge_files || []
+                };
+            }
+        } catch (error) {
+            console.error('Error fetching bot details:', error);
+            // Fallback to default model
+            modelConfig = { model: selectedModel };
+        }
+    }
+    
+    // IMAGE BOT HANDLING
+    if (isImageModel(selectedModel, botDetails)) {
+        // Add assistant message with loading spinner
+        const responseElement = addMessage('', true, 'assistant');
+        responseElement.innerHTML = `<div class="image-loading-spinner"><img src="/static/assets/xenoimggen.png" class="xeno-loader" alt="Loading"> MIDAS is doing AI magic...</div>`;
+        isGenerating = true;
+        startAiMagicDotsAnimation();
+        try {
+            // First, save the user message to the database
+            if (currentConversationId) {
+                try {
+                    const userMsgResponse = await fetch(`/api/conversations/${currentConversationId}/messages`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            role: 'user',
+                            content: message,
+                            attachment_filename: sentAttachmentFilename
+                        })
+                    });
+                    
+                    const userMsgData = await userMsgResponse.json();
+                    if (userMsgData.status !== 'success') {
+                        console.error('Failed to save user message:', userMsgData.message);
+                    }
+                } catch (msgError) {
+                    console.error('Error saving user message:', msgError);
+                }
+            }
+            
+            // If workflow, send model: selectedModel and conversation ID
+            let body = { 
+                prompt: message,
+                conversation_id: currentConversationId || null
+            };
+            if (selectedModel.startsWith('workflow:')) {
+                body.model = selectedModel;
+            }
+            const resp = await fetch('/api/generate_image', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            });
+            const data = await resp.json();
+            if (data.status === 'success' && data.image_base64) {
+                // Create a container for the image and buttons
+                const imageContainer = document.createElement('div');
+                imageContainer.className = 'generated-image-container';
+                
+                // Add a scaled-down image (max height 350px)
+                const img = document.createElement('img');
+                img.src = `data:image/png;base64,${data.image_base64}`;
+                img.className = 'generated-image';
+                img.alt = 'Generated Image';
+                img.style.maxHeight = '350px';
+                imageContainer.appendChild(img);
+                
+                // Create buttons container
+                const actionsContainer = document.createElement('div');
+                actionsContainer.className = 'message-actions image-actions';
+                
+                // View full image button
+                const viewBtn = document.createElement('button');
+                viewBtn.innerHTML = '<i class="fas fa-search-plus"></i>';
+                viewBtn.title = 'View Full Image';
+                viewBtn.addEventListener('click', () => {
+                    // Open image in new window or tab
+                    const win = window.open();
+                    win.document.write(`
+                        <html>
+                            <head>
+                                <title>Full Image</title>
+                                <style>
+                                    body { margin: 0; background: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
+                                    img { max-width: 100%; max-height: 100vh; }
+                                </style>
+                            </head>
+                            <body>
+                                <img src="data:image/png;base64,${data.image_base64}" />
+                            </body>
+                        </html>
+                    `);
+                });
+                actionsContainer.appendChild(viewBtn);
+                
+                // Download button
+                const dlBtn = document.createElement('button');
+                dlBtn.innerHTML = '<i class="fas fa-download"></i>';
+                dlBtn.title = 'Download Image';
+                dlBtn.addEventListener('click', () => {
+                    // Create an anchor element to download the image
+                    const a = document.createElement('a');
+                    a.href = `data:image/png;base64,${data.image_base64}`;
+                    a.download = data.filename || 'generated.png';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                });
+                actionsContainer.appendChild(dlBtn);
+                
+                // Add buttons to the container
+                imageContainer.appendChild(actionsContainer);
+                
+                // Add workflow info if available
+                if (data.workflow) {
+                    const workflowInfo = document.createElement('div');
+                    workflowInfo.className = 'workflow-info';
+                    workflowInfo.textContent = '';
+                    workflowInfo.style.fontSize = '0.8em';
+                    workflowInfo.style.color = 'var(--text-color-muted)';
+                    workflowInfo.style.marginTop = '8px';
+                    imageContainer.appendChild(workflowInfo);
+                }
+                
+                // Add seed information if available
+                if (data.seed !== undefined) {
+                    const seedInfo = document.createElement('div');
+                    seedInfo.className = 'seed-info';
+                    seedInfo.textContent = ``;
+                    seedInfo.style.fontSize = '0.8em';
+                    seedInfo.style.color = 'var(--text-color-muted)';
+                    seedInfo.style.marginTop = '8px';
+                    imageContainer.appendChild(seedInfo);
+                }
+                
+                // Replace loading with the image container
+                responseElement.innerHTML = '';
+                responseElement.appendChild(imageContainer);
+                
+                // Enable image overlay
+                enableImageOverlay(img);
+                
+                // Generate title for new conversations
+                if (isNewConversation) {
+                    console.log("Generating title for new image conversation:", currentConversationId);
+                    try {
+                        // Update conversation list to show latest message
+                        loadConversations(true);
+                        
+                        // Generate a title based on the prompt
+                        const titleResponse = await fetch(`/api/conversations/${currentConversationId}/generate-title`, {
+                            method: 'POST'
+                        });
+                        const titleData = await titleResponse.json();
+                        
+                        if (titleData.status === 'success' && titleData.title) {
+                            console.log("Image conversation title generated successfully:", titleData.title);
+                            // Update the title in the UI
+                            updatePageTitle(titleData.title);
+                            updateHeaderInfo(titleData.title, selectedModel);
+                            
+                            // Refresh the conversation list to show the new title
+                            loadConversations(true);
+                        } else {
+                            console.error("Image title generation failed:", titleData);
+                        }
+                    } catch (titleError) {
+                        console.error('Error generating title:', titleError);
+                    } finally {
+                        // Reset the new conversation flag
+                        isNewConversation = false;
+                    }
+                }
+            } else {
+                responseElement.innerHTML = `<span class="error-message">Image generation failed: ${data.message || 'Unknown error'}</span>`;
+            }
+        } catch (error) {
+            responseElement.innerHTML = `<span class="error-message">Image generation failed: ${error.message}</span>`;
+        } finally {
+            isGenerating = false;
+            stopAiMagicDotsAnimation();
+        }
+        return;
+    }
+    // END IMAGE BOT HANDLING
+
+    // Start generating response (text, as before)
+    isGenerating = true;
+    try {
+        // Add assistant message with loading indicator
+        const responseElement = addMessage('', true, 'assistant');
+        
+        // First, save the user message to the database
+        if (currentConversationId) {
+            try {
+                const userMsgResponse = await fetch(`/api/conversations/${currentConversationId}/messages`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        role: 'user',
+                        content: message,
+                        attachment_filename: sentAttachmentFilename
+                    })
+                });
+                
+                const userMsgData = await userMsgResponse.json();
+                if (userMsgData.status !== 'success') {
+                    console.error('Failed to save user message:', userMsgData.message);
+                }
+            } catch (msgError) {
+                console.error('Error saving user message:', msgError);
+            }
+        }
+        
+        // Use fetch with streaming
+        const response = await fetch('/api/generate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                message: message,
+                ...modelConfig,
+                conversation_id: currentConversationId,
+                attachment_filename: sentAttachmentFilename // Send attached filename
+            })
+        });
+        
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        
+        let fullResponse = '';
+        let thinkingContent = '';
+        let finalUserMessageId = null; // To store the ID of the saved user message
+        let finalAssistantMessageId = null; // To store the ID of the saved assistant message
+        let titleUpdateProcessed = false; // Flag to prevent duplicate title updates
+        
+        // Remove loading indicator and prepare containers
+        responseElement.innerHTML = '';
+        
+        // Create containers for thinking and main response
+        const thinkingElement = document.createElement('details');
+        thinkingElement.className = 'thinking';
+        thinkingElement.open = userPreferences.show_thinking || false;
+        
+        const summary = document.createElement('summary');
+        summary.textContent = 'Thinking Process';
+        thinkingElement.appendChild(summary);
+        
+        const thinkingContentEl = document.createElement('div');
+        thinkingContentEl.className = 'thinking-content';
+        thinkingElement.appendChild(thinkingContentEl);
+        
+        const mainResponse = document.createElement('div');
+        mainResponse.className = 'main-response';
+        
+        // Add containers to the message element
+        responseElement.appendChild(thinkingElement);
+        responseElement.appendChild(mainResponse);
+        
+        // Initially hide the thinking element until we have content
+        thinkingElement.style.display = 'none';
+        
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n\n');
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.substring(6));
+                        
+                        if (data.error) {
+                            // responseElement.remove();
+                            addMessage(`Error: ${data.error}`, false, 'system');
+                            break;
+                        }
+                        
+                        if (!data.done) {
+                            // Update the response as it streams in
+                            fullResponse += data.chunk;
+                            
+                            // Extract thinking content if present
+                            if (fullResponse.includes('<think>') && fullResponse.includes('</think>')) {
+                                const thinkStart = fullResponse.indexOf('<think>') + '<think>'.length;
+                                const thinkEnd = fullResponse.indexOf('</think>');
+                                
+                                if (thinkStart > 0 && thinkEnd > thinkStart) {
+                                    thinkingContent = fullResponse.substring(thinkStart, thinkEnd).trim();
+                                    thinkingContentEl.innerHTML = renderMarkdown(thinkingContent);
+                                    
+                                    // Show thinking element if it has content
+                                    if (thinkingElement.style.display === 'none') {
+                                        thinkingElement.style.display = 'block';
+                                    }
+                                }
+                            }
+                            
+                            // Update main response (excluding thinking content)
+                            let displayResponse = fullResponse;
+                            if (displayResponse.includes('<think>') && displayResponse.includes('</think>')) {
+                                displayResponse = displayResponse.replace(/<think>[\s\S]*?<\/think>/g, '');
+                            }
+                            
+                            // Remove common prefixes
+                            const prefixes = ['Answer:', 'Final Answer:', 'My answer:', "Here's my answer:", 'The answer is:'];
+                            for (const prefix of prefixes) {
+                                if (displayResponse.trim().startsWith(prefix)) {
+                                    displayResponse = displayResponse.trim().substring(prefix.length).trim();
+                                }
+                            }
+                            
+                            // Update the main response content
+                            mainResponse.innerHTML = formatMarkdown(displayResponse);
+                            
+                            // Scroll to bottom as content is added
+                            scrollToBottom();
+                        } else if (data.title_update && !titleUpdateProcessed) {
+                            // Track that we're processing this update
+                            titleUpdateProcessed = true;
+                            
+                            // Handle title update event from server
+                            console.log('Received title update from server:', data.title);
+                            
+                            // Update the UI with the new title
+                            updatePageTitle(data.title);
+                            updateHeaderInfo(data.title, currentModel);
+                            
+                            // Update conversation list to show the new title
+                            loadConversations(true); // Force refresh
+                            
+                            // Reset flag after slight delay to allow UI updates
+                            setTimeout(() => { titleUpdateProcessed = false; }, 1000);
+                        } else {
+                            // Final message with complete response
+                            // Set final content
+                            const finalContent = data.full_response || fullResponse;
+                            finalUserMessageId = data.user_message_id; // Get user message ID
+                            finalAssistantMessageId = data.assistant_message_id; // Get assistant message ID
+                            
+                            // Update final thinking content
+                            const finalThinking = data.thinking || thinkingContent;
+                            if (finalThinking && finalThinking.trim() !== '') {
+                                // Update thinking content
+                                thinkingContentEl.innerHTML = renderMarkdown(finalThinking);
+                                
+                                // Show thinking element if it has content
+                                thinkingElement.style.display = 'block';
+                            } else {
+                                // Hide thinking element if no content
+                                thinkingElement.style.display = 'none';
+                            }
+                            
+                            // Update final response content
+                            mainResponse.innerHTML = renderMarkdown(finalContent);
+                            
+                            // Add the DB ID to the assistant element and history
+                            if (finalAssistantMessageId) {
+                                responseElement.dataset.messageId = finalAssistantMessageId;
+                                // Find the corresponding history item using the DOM ID's timestamp part
+                                const assistantHistoryItem = messageHistory.find(m => responseElement.id.endsWith(m.id));
+                                if (assistantHistoryItem) {
+                                    assistantHistoryItem.dbId = finalAssistantMessageId;
+                                } else {
+                                     console.warn("Could not find assistant message in history to update dbId:", responseElement.id);
+                                }
+                            }
+                            
+                            // Add the DB ID to the user element and history
+                            if (finalUserMessageId && userMessageElement) {
+                                userMessageElement.dataset.messageId = finalUserMessageId;
+                                // Find the corresponding history item using the DOM ID's timestamp part
+                                const userHistoryItem = messageHistory.find(m => userMessageElement.id.endsWith(m.id));
+                                if (userHistoryItem) {
+                                    userHistoryItem.dbId = finalUserMessageId;
+                                } else {
+                                     console.warn("Could not find user message in history to update dbId:", userMessageElement.id);
+                                }
+                            }
+
+                            // Ensure buttons are added after final content render for assistant
+                            addMessageButtons(responseElement, 'assistant');
+                            
+                            // Find message in history and update with final content and thinking
+                            // (Already updated dbId above)
+                            const messageHistoryItem = messageHistory.find(m => responseElement.id.endsWith(m.id));
+                            if (messageHistoryItem) {
+                                messageHistoryItem.content = finalContent;
+                                messageHistoryItem.thinking = finalThinking;
+                            }
+                            
+                            // Update conversation list to show latest message
+                            loadConversations(true); // Force refresh
+                        }
+                    } catch (e) {
+                        console.error('Error parsing streaming data:', e, line);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        addMessage(`Error: ${error.message}`, false, 'system');
+        console.error('Error generating response:', error);
+    } finally {
+        isGenerating = false;
+        scrollToBottom();
+        removeAttachment(); // Clear attachment preview after sending
+        
+        // Generate title for new conversations
+        if (isNewConversation && currentConversationId) {
+            console.log("Generating title for new conversation:", currentConversationId);
+            try {
+                // Update conversation list to show latest message
+                loadConversations(true);
+                
+                // Generate a title based on the conversation
+                const titleResponse = await fetch(`/api/conversations/${currentConversationId}/generate-title`, {
+                    method: 'POST'
+                });
+                const titleData = await titleResponse.json();
+                
+                if (titleData.status === 'success' && titleData.title) {
+                    console.log("Title generated successfully:", titleData.title);
+                    // Update the title in the UI
+                    updatePageTitle(titleData.title);
+                    updateHeaderInfo(titleData.title, selectedModel);
+                    
+                    // Reload conversations to show new title
+                    loadConversations(true);
+                } else {
+                    console.error("Title generation failed:", titleData);
+                }
+            } catch (titleError) {
+                console.error('Error generating title:', titleError);
+            } finally {
+                // Reset the new conversation flag
+                isNewConversation = false;
+            }
+        }
+    }
+}
+
+// Update the page title with the conversation title
+function updatePageTitle(title) {
+    document.title = title ? `${title} - MIDAS3.0` : 'MIDAS3.0';
+    
+    // If there's a header title element, update it too
+    if (chatTitleElement) {
+        chatTitleElement.textContent = title || 'New Chat';
+    }
+}
+
+// Update header info with current chat title and model
+function updateHeaderInfo(title, model) {
+    // Update title
+    if (chatTitleElement) {
+        chatTitleElement.textContent = title || 'New Chat';
+    }
+    
+    // Update model
+    if (chatModelElement && model) {
+        // Check if this is a bot model
+        if (model.startsWith('bot:')) {
+            // Extract bot ID
+            const botId = model.substring(4);
+            
+            // Fetch the bot details to get its name
+            fetch(`/api/bots/${botId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Display the bot name instead of the ID without the "Bot:" prefix
+                        chatModelElement.textContent = data.bot.name;
+                    } else {
+                        // Fallback if bot details can't be fetched
+                        chatModelElement.textContent = model.replace('bot:', '');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching bot details:', error);
+                    chatModelElement.textContent = model.replace('bot:', '');
+                });
+        } else {
+            // Regular model, display as is (remove any workflow: prefix)
+            chatModelElement.textContent = model.replace('workflow:', '');
+        }
+    } else if (chatModelElement) {
+        chatModelElement.textContent = 'Select a model';
+    }
+}
+
+// Update conversation in list
+function updateConversationInList(conversationId) {
+    const conversationItem = document.querySelector(`.conversation-item[data-id="${conversationId}"]`);
+    if (conversationItem) {
+        conversationItem.querySelector('.conversation-title').textContent = 'New Title';
+    }
+}
+
+// Update conversation in list with animation
+function updateConversationInList(conversationId) {
+    const item = document.querySelector(`.conversation-item[data-id="${conversationId}"]`);
+    if (item) {
+        item.classList.add('updated');
+        
+        // Remove the class after animation completes
+        setTimeout(() => {
+            item.classList.remove('updated');
+        }, 500);
+    }
+}
+
+// Call this function whenever a conversation is updated
+// For example, after title generation or message sending
+loadConversations = async function(refresh = false) {
+    try {
+        showLoading('Loading conversations...');
+        
+        const response = await fetch('/api/conversations');
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            // Sort by updated_at descending
+            const sortedConversations = data.conversations.sort((a, b) => 
+                new Date(b.updated_at) - new Date(a.updated_at)
+            );
+            
+            // Get most recent 5 conversations
+            const recentConversations = sortedConversations.slice(0, 5);
+            
+            // Clear existing conversations
+            conversationList.innerHTML = '';
+            
+            // Add recent conversations
+            recentConversations.forEach(conversation => {
+                const item = document.createElement('div');
+                item.className = 'conversation-item';
+                item.dataset.id = conversation.id;
+                
+                if (conversation.id == currentConversationId) {
+                    item.classList.add('active-conversation');
+                }
+                
+                // Create title element
+                const titleEl = document.createElement('div');
+                titleEl.className = 'conversation-title';
+                titleEl.textContent = conversation.title || 'New Chat';
+                
+                // Create metadata container
+                const metaContainer = document.createElement('div');
+                metaContainer.className = 'conversation-meta';
+                
+                // Create model element
+                const modelEl = document.createElement('span');
+                modelEl.className = 'conversation-model';
+                
+                // Check if this is a bot model
+                if (conversation.model && conversation.model.startsWith('bot:')) {
+                    // Extract bot ID
+                    const botId = conversation.model.substring(4);
+                    
+                    // Set a temporary value
+                    modelEl.textContent = 'Bot';
+                    
+                    // Fetch the bot details to get its name
+                    fetch(`/api/bots/${botId}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                // Display the bot name instead of the ID
+                                modelEl.textContent = data.bot.name;
+                            } else {
+                                // Fallback if bot details can't be fetched
+                                modelEl.textContent = conversation.model;
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching bot details:', error);
+                            modelEl.textContent = conversation.model;
+                        });
+                } else {
+                    // Regular model, display as is (remove any workflow: prefix)
+                    modelEl.textContent = conversation.model.replace('workflow:', '');
+                }
+                
+                // Create date element
+                const dateEl = document.createElement('span');
+                dateEl.className = 'conversation-date';
+                dateEl.textContent = new Date(conversation.updated_at).toLocaleString();
+                
+                // Add elements to container
+                metaContainer.appendChild(modelEl);
+                metaContainer.appendChild(dateEl);
+                
+                item.appendChild(titleEl);
+                item.appendChild(metaContainer);
+                
+                // Add buttons container
+                const buttonsContainer = document.createElement('div');
+                buttonsContainer.className = 'conversation-buttons';
+                
+                // Add rename button
+                const renameButton = document.createElement('button');
+                renameButton.className = 'rename-conversation-button';
+                renameButton.innerHTML = '<i class="fas fa-edit"></i>';
+                renameButton.title = 'Rename';
+                renameButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    renameConversation(conversation.id, conversation.title);
+                });
+                
+                // Add delete button
+                const deleteButton = document.createElement('button');
+                deleteButton.className = 'delete-conversation-button';
+                deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+                deleteButton.title = 'Delete';
+                deleteButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    currentConversationToDelete = conversation.id;
+                    document.getElementById('delete-confirm-modal').style.display = 'flex';
+                });
+                
+                buttonsContainer.appendChild(renameButton);
+                buttonsContainer.appendChild(deleteButton);
+                item.appendChild(buttonsContainer);
+                
+                // Add click handler
+                item.addEventListener('click', (e) => {
+                    // Only load conversation if clicking on the item itself, not buttons
+                    if (e.target === item || e.target.classList.contains('conversation-title') || 
+                        e.target.classList.contains('conversation-meta')) {
+                        loadConversation(conversation.id);
+                    }
+                });
+                
+                conversationList.appendChild(item);
+            });
+            
+            // Add 'More' button if there are more conversations
+            if (sortedConversations.length > 5) {
+                const moreButton = document.createElement('div');
+                moreButton.className = 'more-conversations-button';
+                moreButton.textContent = '... More Chats';
+                moreButton.addEventListener('click', showAllConversations);
+                conversationList.appendChild(moreButton);
+            }
+            
+            // Update conversation in list with animation
+            updateConversationInList(currentConversationId);
+        } else {
+            addMessage(`Error: ${data.message}`, false, 'system');
+        }
+    } catch (error) {
+        console.error('Error loading conversations:', error);
+        conversationList.innerHTML = '<div class="empty-message">Failed to load conversations</div>';
+    } finally {
+        removeLoading();
+    }
+}
+
+// --- Document Upload Handler ---
+async function handleDocumentUpload() {
+    if (!docUploadInput || !docUploadInput.files || docUploadInput.files.length === 0) {
+        uploadStatus.textContent = 'Please select a file first.';
+        setTimeout(() => uploadStatus.textContent = '', 3000);
+        return;
+    }
+
+    // Check if there's a current conversation
+    if (!currentConversationId) {
+        uploadStatus.textContent = 'Please start a conversation first.';
+        showNotification('Please start a conversation before uploading documents', 'error');
+        setTimeout(() => uploadStatus.textContent = '', 3000);
+        return;
+    }
+
+    const file = docUploadInput.files[0];
+    const allowedTypes = ['text/plain', 'application/pdf', 'text/markdown'];
+    const allowedExtensions = ['.txt', '.pdf', '.md'];
+    const fileExtension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+
+    // Basic client-side check for extension and potentially MIME type
+    // Note: MIME type check can be unreliable, server-side validation is crucial.
+    if (!allowedExtensions.includes(fileExtension) /* && !allowedTypes.includes(file.type) */) {
+        uploadStatus.textContent = 'Invalid file type. Allowed: .txt, .pdf, .md';
+        setTimeout(() => uploadStatus.textContent = '', 4000);
+        docUploadInput.value = ''; // Clear the hidden file input
+        return;
+    }
+
+    const formData = new FormData();
+    
+    // Add the file with the correct field name 'document' that the backend expects
+    formData.append('document', file);
+    
+    // Add the conversation ID to the form data
+    formData.append('conversation_id', currentConversationId);
+
+    console.log('FormData keys before fetch:');
+    for (let key of formData.keys()) {
+        console.log(key);
+    }
+    // Debugging: Log the file object itself
+    console.log('File object being sent:', file);
+    console.log('Uploading to conversation:', currentConversationId);
+
+    uploadStatus.textContent = `Uploading ${file.name}...`;
+    fileUploadButton.disabled = true;
+    
+    // Add a visual indicator to the file upload button
+    fileUploadButton.classList.add('uploading');
+    fileUploadButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+    try {
+        const response = await fetch('/api/upload-doc', {
+            method: 'POST',
+            body: formData,
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            console.log('Document uploaded successfully:', result);
+            // Show attachment preview
+            currentAttachmentFilename = file.name;
+            displayAttachmentPreview(currentAttachmentFilename);
+            uploadStatus.textContent = `${file.name} attached`;
+            uploadStatus.style.display = 'block';
+            showNotification(`${file.name} added to this conversation's knowledge base!`, 'success');
+            addMessage(`Document "${file.name}" has been uploaded and added to this conversation's knowledge base.`, false, 'system');
+            setTimeout(() => {
+                uploadStatus.style.display = 'none';
+            }, 3000);
+        } else {
+            uploadStatus.textContent = `Error: ${result.message || 'Upload failed'}`;
+            showNotification(`Error: ${result.message || 'Upload failed'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Upload error:', error);
+        uploadStatus.textContent = 'Upload failed. See console for details.';
+        showNotification('Upload failed. See console for details.', 'error');
+    } finally {
+        // Reset the file upload button
+        fileUploadButton.disabled = false;
+        fileUploadButton.classList.remove('uploading');
+        fileUploadButton.innerHTML = '<i class="fas fa-paperclip"></i>';
+        
+        // Clear status message after a delay
+        setTimeout(() => uploadStatus.textContent = '', 5000);
+    }
+}
+
+// --- Attachment Preview --- 
+function displayAttachmentPreview(filename) {
+    if (filename) {
+        attachmentPreviewFilename.textContent = filename;
+        attachmentPreviewFilename.title = filename; // Show full name on hover
+        attachmentPreview.style.display = 'flex';
+        messageInput.style.paddingRight = '50px'; // Add padding to avoid text overlapping with attachment
+        updateSendButtonState(); // Enable send button if there's an attachment
+    } else {
+        attachmentPreview.style.display = 'none';
+        messageInput.style.paddingRight = ''; // Reset padding
+    }
+}
+
+function removeAttachment() {
+    currentAttachmentFilename = null;
+    docUploadInput.value = ''; // Clear the hidden file input
+    attachmentPreview.style.display = 'none';
+    attachmentPreviewFilename.textContent = '';
+    attachmentPreviewFilename.title = '';
+    messageInput.style.paddingRight = ''; // Reset padding
+    updateSendButtonState(); // Re-evaluate send button state
+}
+
+// --- Helper Functions ---
+function updateSendButtonState() {
+    const message = messageInput.value.trim();
+    
+    // Enable if message has content OR an attachment is present
+    sendButton.disabled = !(message || currentAttachmentFilename);
+}
+
+// Function to initialize preferences UI and listeners
+function initializePreferences() {
+    const preferencesButton = document.getElementById('preferences-button');
+    const preferencesModal = document.getElementById('preferences-modal');
+    const savePreferencesButton = document.getElementById('save-preferences');
+    const cancelPreferencesButton = document.getElementById('cancel-preferences');
+    const tabButtons = document.querySelectorAll('.tab-button');
+    const preferencesLoading = document.getElementById('preferences-loading');
+    const modelsTab = document.getElementById('models-tab');
+    
+    // Show preferences modal when preferences button is clicked
+    preferencesButton.addEventListener('click', function() {
+        // Show the modal first
+        preferencesModal.style.display = 'flex';
+        
+        // Show loading animation, hide tabs content
+        preferencesLoading.style.display = 'flex';
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.style.display = 'none';
+        });
+        
+        // Reset tab buttons to ensure Models tab is active
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        tabButtons[0].classList.add('active'); // First tab button is Models
+        
+        // Load preferences (will hide loading when done)
+        loadPreferences();
+    });
+    
+    // Hide modal when cancel button is clicked
+    cancelPreferencesButton.addEventListener('click', function() {
+        preferencesModal.style.display = 'none';
+    });
+    
+    // Save preferences when save button is clicked
+    savePreferencesButton.addEventListener('click', function() {
+        savePreferences();
+    });
+    
+    // Close modal when clicking outside
+    preferencesModal.addEventListener('click', function(event) {
+        if (event.target === preferencesModal) {
+            preferencesModal.style.display = 'none';
+        }
+    });
+    
+    // Tab switching functionality
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            // Remove active class from all tabs
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            
+            // Add active class to clicked tab
+            this.classList.add('active');
+            
+            // Get the tab to show
+            const tabToShow = this.getAttribute('data-tab');
+            
+            // Hide all tab content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            
+            // Show the selected tab content
+            document.getElementById(`${tabToShow}-tab`).style.display = 'block';
+        });
+    });
+    
+    // Initialize theme from localStorage or apply default
+    initializeTheme();
+}
+
+// Function to load preferences from the server
+async function loadPreferences() {
+    try {
+        const preferencesLoading = document.getElementById('preferences-loading');
+        const modelsTab = document.getElementById('models-tab');
+        
+        // Show loading animation
+        preferencesLoading.style.display = 'flex';
+        
+        const response = await fetch('/api/preferences');
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            userPreferences = data.preferences;
+            availableModels = data.available_models;
+            availableEmbeddingModels = data.embedding_models;
+            
+            // Populate UI with preferences
+            populatePreferencesUI();
+            
+            // Hide loading, show models tab (always start with models tab)
+            preferencesLoading.style.display = 'none';
+            modelsTab.style.display = 'block';
+            
+            // Make sure appearance tab is hidden
+            document.getElementById('appearance-tab').style.display = 'none';
+        } else {
+            console.error('Error loading preferences:', data.message);
+            
+            // Hide loading, show error message
+            preferencesLoading.innerHTML = `
+                <p class="error-message">Error loading preferences. Please try again.</p>
+                <button class="retry-button" onclick="loadPreferences()">Retry</button>
+            `;
+        }
+    } catch (error) {
+        console.error('Error fetching preferences:', error);
+        
+        // Hide loading, show error message
+        const preferencesLoading = document.getElementById('preferences-loading');
+        preferencesLoading.innerHTML = `
+            <p class="error-message">Error loading preferences. Please try again.</p>
+            <button class="retry-button" onclick="loadPreferences()">Retry</button>
+        `;
+    }
+}
+
+// Function to populate the preferences UI with current values
+function populatePreferencesUI() {
+    // Populate default model dropdown
+    const defaultModelSelect = document.getElementById('default-model');
+    defaultModelSelect.innerHTML = '';
+    
+    // Add "None" option
+    const noneOption = document.createElement('option');
+    noneOption.value = '';
+    noneOption.textContent = 'None (use first available)';
+    defaultModelSelect.appendChild(noneOption);
+    
+    // Sort models to put the default model first
+    const sortedModels = [...availableModels];
+    if (userPreferences.default_model) {
+        // Remove the default model from the array
+        const defaultModelIndex = sortedModels.findIndex(model => model === userPreferences.default_model);
+        if (defaultModelIndex !== -1) {
+            const defaultModel = sortedModels.splice(defaultModelIndex, 1)[0];
+            // Add it back at the beginning
+            sortedModels.unshift(defaultModel);
+        }
+    }
+    
+    // Add all available models
+    sortedModels.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        
+        // Set selected if it matches the current default
+        if (userPreferences.default_model === model) {
+            option.selected = true;
+        }
+        
+        defaultModelSelect.appendChild(option);
+    });
+    
+    // Populate embedding model dropdown
+    const embeddingModelSelect = document.getElementById('default-embedding-model');
+    embeddingModelSelect.innerHTML = '';
+    
+    availableEmbeddingModels.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model;
+        option.textContent = model;
+        
+        // Set selected if it matches the current default
+        if (userPreferences.default_embedding_model === model) {
+            option.selected = true;
+        }
+        
+        embeddingModelSelect.appendChild(option);
+    });
+    
+    // Populate visible models checkboxes
+    const visibleModelsContainer = document.getElementById('visible-models-container');
+    visibleModelsContainer.innerHTML = '';
+    
+    availableModels.forEach(model => {
+        const label = document.createElement('label');
+        label.className = 'checkbox-label';
+        
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = model;
+        checkbox.checked = userPreferences.visible_models.length === 0 || userPreferences.visible_models.includes(model);
+        
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(' ' + model));
+        
+        visibleModelsContainer.appendChild(label);
+    });
+    
+    // Set theme radio buttons
+    const themeRadios = document.querySelectorAll('input[name="theme"]');
+    themeRadios.forEach(radio => {
+        if (radio.value === userPreferences.theme) {
+            radio.checked = true;
+        }
+    });
+    
+    // Set thinking process checkbox
+    const showThinkingCheckbox = document.getElementById('show-thinking');
+    showThinkingCheckbox.checked = userPreferences.show_thinking || false;
+}
+
+// Function to save preferences to the server
+async function savePreferences() {
+    try {
+        // Get values from UI
+        const defaultModel = document.getElementById('default-model').value;
+        const defaultEmbeddingModel = document.getElementById('default-embedding-model').value;
+        
+        // Get visible models from checkboxes
+        const visibleModels = [];
+        const visibleModelCheckboxes = document.querySelectorAll('#visible-models-container input[type="checkbox"]:checked');
+        visibleModelCheckboxes.forEach(checkbox => {
+            visibleModels.push(checkbox.value);
+        });
+        
+        // Get theme from radio buttons
+        const themeRadio = document.querySelector('input[name="theme"]:checked');
+        const theme = themeRadio ? themeRadio.value : 'light';
+        
+        // Get thinking process preference
+        const showThinking = document.getElementById('show-thinking').checked;
+        
+        // Update preferences object
+        const updatedPreferences = {
+            default_model: defaultModel || null,
+            default_embedding_model: defaultEmbeddingModel,
+            visible_models: visibleModels,
+            theme: theme,
+            show_thinking: showThinking
+        };
+        
+        // Send to server
+        const response = await fetch('/api/preferences', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updatedPreferences)
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            // Update local preferences
+            userPreferences = updatedPreferences;
+            
+            // Apply theme
+            applyTheme(theme);
+            
+            // Close modal
+            document.getElementById('preferences-modal').style.display = 'none';
+            
+            // Show success notification
+            showNotification('Preferences saved successfully');
+            
+            // Reload models in the dropdown
+            loadModels();
+        } else {
+            console.error('Error saving preferences:', data.message);
+            showNotification('Error saving preferences', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving preferences:', error);
+        showNotification('Error saving preferences', 'error');
+    }
+}
+
+// Helper function to get selected visible models
+function getSelectedVisibleModels() {
+    const selectedModels = [];
+    const checkboxes = document.querySelectorAll('#visible-models-container input[type="checkbox"]:checked');
+    
+    // If all models are selected, return an empty array (show all)
+    if (checkboxes.length === availableModels.length) {
+        return [];
+    }
+    
+    // Otherwise, return the selected models
+    checkboxes.forEach(checkbox => {
+        selectedModels.push(checkbox.value);
+    });
+    
+    return selectedModels;
+}
+
+// Helper function to get selected theme
+function getSelectedTheme() {
+    const selectedRadio = document.querySelector('input[name="theme"]:checked');
+    return selectedRadio ? selectedRadio.value : 'light';
+}
+
+// Function to apply theme
+function applyTheme(theme) {
+    if (theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        localStorage.setItem('theme', 'dark');
+    } else if (theme === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+        localStorage.setItem('theme', 'light');
+    } else if (theme === 'system') {
+        // Check system preference
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+            document.documentElement.setAttribute('data-theme', 'light');
+        }
+        localStorage.setItem('theme', 'system');
+    }
+}
+
+// Function to show notification
+function showNotification(message, type = 'success') {
+    // Create notification element if it doesn't exist
+    let notification = document.getElementById('notification');
+    if (!notification) {
+        notification = document.createElement('div');
+        notification.id = 'notification';
+        document.body.appendChild(notification);
+    }
+    
+    // Set content and type
+    notification.textContent = message;
+    notification.className = `notification ${type}`;
+    
+    // Show notification
+    notification.style.display = 'block';
+    
+    // Hide after 3 seconds
+    setTimeout(() => {
+        notification.style.display = 'none';
+    }, 3000);
+}
+
+// Function to initialize theme
+function initializeTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    applyTheme(savedTheme);
+}
+
+// Populate model dropdowns for bot editor
+async function populateModelDropdowns() {
+    try {
+        // Fetch base models
+        const modelsResponse = await fetch('/api/models');
+        const modelsData = await modelsResponse.json();
+        
+        // Fetch embedding models
+        const embeddingResponse = await fetch('/api/embedding_models');
+        const embeddingData = await embeddingResponse.json();
+        
+        // Get the select elements
+        const baseModelSelect = document.getElementById('bot-base-model');
+        const embeddingModelSelect = document.getElementById('bot-embedding-model');
+        
+        // Clear existing options except the first one (placeholder)
+        while (baseModelSelect.options.length > 1) {
+            baseModelSelect.remove(1);
+        }
+        
+        while (embeddingModelSelect.options.length > 1) {
+            embeddingModelSelect.remove(1);
+        }
+        
+        // Add base models
+        if (modelsData.status === 'success' && modelsData.models) {
+            modelsData.models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = model.name;
+                baseModelSelect.appendChild(option);
+            });
+        }
+        
+        // Add embedding models
+        if (embeddingData.status === 'success' && embeddingData.models) {
+            embeddingData.models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = model.name;
+                embeddingModelSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error fetching models for bot editor:', error);
+        // Show error message
+        showNotification('Failed to load models. Please try again.', 'error');
+    }
+}
+
+// ============================================================
+// Bot Management
+// ============================================================
+
+// Initialize bot management UI
+function initializeBotManagement() {
+    const manageBotButton = document.getElementById('manage-bots-button');
+    const botManagementModal = document.getElementById('bot-management-modal');
+    const closeBotModalButton = document.getElementById('close-bot-modal');
+    const createNewBotButton = document.getElementById('create-new-bot-button');
+    const backToListButton = document.getElementById('back-to-bot-list-button');
+    const botListSection = document.getElementById('bot-list-section');
+    const botEditorSection = document.getElementById('bot-editor-section');
+    const botForm = document.getElementById('bot-form');
+    const cancelBotEditButton = document.getElementById('cancel-bot-edit');
+    const uploadKnowledgeButton = document.getElementById('upload-knowledge-button');
+    const knowledgeFileInput = document.getElementById('knowledge-file-input');
+    
+    // Temperature and Top-P sliders
+    const temperatureSlider = document.getElementById('bot-temperature');
+    const temperatureValue = document.getElementById('temperature-value');
+    const topPSlider = document.getElementById('bot-top-p');
+    const topPValue = document.getElementById('top-p-value');
+    
+    // Update temperature value display when slider changes
+    temperatureSlider.addEventListener('input', function() {
+        temperatureValue.textContent = this.value;
+    });
+    
+    // Update top-p value display when slider changes
+    topPSlider.addEventListener('input', function() {
+        topPValue.textContent = this.value;
+    });
+    
+    // Open bot management modal
+    manageBotButton.addEventListener('click', function() {
+        botManagementModal.style.display = 'flex';
+        loadBots();
+    });
+    
+    // Close bot management modal
+    closeBotModalButton.addEventListener('click', function() {
+        botManagementModal.style.display = 'none';
+    });
+    
+    // Close modal when clicking outside
+    botManagementModal.addEventListener('click', function(event) {
+        if (event.target === botManagementModal) {
+            botManagementModal.style.display = 'none';
+        }
+    });
+    
+    // Show bot editor for creating a new bot
+    createNewBotButton.addEventListener('click', function() {
+        showBotEditor();
+    });
+    
+    // Go back to bot list
+    backToListButton.addEventListener('click', function() {
+        showBotList();
+    });
+    
+    // Cancel bot edit
+    cancelBotEditButton.addEventListener('click', function() {
+        showBotList();
+    });
+    
+    // Handle bot form submission
+    botForm.addEventListener('submit', function(event) {
+        event.preventDefault();
+        saveBot();
+    });
+    
+    // Handle knowledge file upload button
+    uploadKnowledgeButton.addEventListener('click', function() {
+        knowledgeFileInput.click();
+    });
+    
+    // Handle knowledge file selection
+    knowledgeFileInput.addEventListener('change', function() {
+        const botId = document.getElementById('bot-id').value;
+        if (botId && this.files.length > 0) {
+            uploadKnowledgeFiles(botId, this.files);
+        }
+    });
+}
+
+// Load bots from the server
+async function loadBots() {
+    const botListContainer = document.getElementById('bot-list-container');
+    
+    try {
+        // Show loading
+        botListContainer.innerHTML = `
+            <div class="loading-container">
+                <img src="/static/assets/xeno.png" alt="Loading" class="loading-spinner">
+                <p>Loading bots...</p>
+            </div>
+        `;
+        
+        const response = await fetch('/api/bots');
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            // Clear loading
+            botListContainer.innerHTML = '';
+            
+            if (data.bots.length === 0) {
+                botListContainer.innerHTML = `
+                    <div class="empty-state">
+                        <img src="/static/assets/monoXenosad.png" alt="No Bots" class="empty-state-image" style="width: 80px; height: auto;">
+                        <p>You don't have any bots yet.</p>
+                        <p>Create a new bot to get started!</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Add bots to the list
+            data.bots.forEach(bot => {
+                const botItem = createBotListItem(bot);
+                botListContainer.appendChild(botItem);
+            });
+        } else {
+            botListContainer.innerHTML = `
+                <div class="error-state">
+                    <p>Error loading bots: ${data.message}</p>
+                    <button class="retry-button" onclick="loadBots()">Retry</button>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading bots:', error);
+        botListContainer.innerHTML = `
+            <div class="error-state">
+                <p>Error loading bots. Please try again.</p>
+                <button class="retry-button" onclick="loadBots()">Retry</button>
+            </div>
+        `;
+    }
+}
+
+// Create a bot list item
+function createBotListItem(bot) {
+    const botItem = document.createElement('div');
+    botItem.className = 'bot-item';
+    botItem.dataset.id = bot.id;
+    
+    const botInfo = document.createElement('div');
+    botInfo.className = 'bot-info';
+    
+    const botName = document.createElement('div');
+    botName.className = 'bot-name';
+    botName.textContent = bot.name;
+    
+    const botDescription = document.createElement('div');
+    botDescription.className = 'bot-description';
+    botDescription.textContent = bot.description || 'No description';
+    
+    const botModel = document.createElement('div');
+    botModel.className = 'bot-model';
+    botModel.textContent = `Model: ${bot.base_model || 'Not set'}`;
+    
+    botInfo.appendChild(botName);
+    botInfo.appendChild(botDescription);
+    botInfo.appendChild(botModel);
+    
+    const botActions = document.createElement('div');
+    botActions.className = 'bot-actions';
+    
+    const editButton = document.createElement('button');
+    editButton.innerHTML = '<i class="fas fa-edit"></i>';
+    editButton.title = 'Edit Bot';
+    editButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        editBot(bot.id);
+    });
+    
+    const deleteButton = document.createElement('button');
+    deleteButton.innerHTML = '<i class="fas fa-trash"></i>';
+    deleteButton.title = 'Delete Bot';
+    deleteButton.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        confirmDeleteBot(bot.id);
+    });
+    
+    botActions.appendChild(editButton);
+    botActions.appendChild(deleteButton);
+    botItem.appendChild(botInfo);
+    botItem.appendChild(botActions);
+    
+    // Add click handler to open chat with this bot
+    botItem.addEventListener('click', function() {
+        startChatWithBot(bot.id);
+    });
+    
+    return botItem;
+}
+
+// Show bot editor
+async function showBotEditor(botId = null) {
+    const botListSection = document.getElementById('bot-list-section');
+    const botEditorSection = document.getElementById('bot-editor-section');
+    const botModalTitle = document.getElementById('bot-modal-title');
+    const createNewBotButton = document.getElementById('create-new-bot-button');
+    const backToListButton = document.getElementById('back-to-bot-list-button');
+    const botForm = document.getElementById('bot-form');
+    const botBaseModelSelect = document.getElementById('bot-base-model');
+    const botEmbeddingModelSelect = document.getElementById('bot-embedding-model');
+    
+    // Show editor section, hide list section
+    botListSection.style.display = 'none';
+    botEditorSection.style.display = 'block';
+    
+    // Update header
+    createNewBotButton.style.display = 'none';
+    backToListButton.style.display = 'inline-block';
+    
+    // Update title
+    if (botId) {
+        botModalTitle.textContent = 'Edit Bot';
+    } else {
+        botModalTitle.textContent = 'Create New Bot';
+    }
+    
+    // Reset form
+    botForm.reset();
+    document.getElementById('bot-id').value = '';
+    document.getElementById('knowledge-files-list').innerHTML = '';
+    
+    // Populate model dropdowns
+    populateModelDropdowns();
+    
+    if (botId) {
+        // Editing existing bot
+        try {
+            const response = await fetch(`/api/bots/${botId}`);
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                const bot = data.bot;
+                
+                // Set form values
+                document.getElementById('bot-id').value = bot.id;
+                document.getElementById('bot-name').value = bot.name;
+                document.getElementById('bot-description').value = bot.description || '';
+                document.getElementById('bot-greeting').value = bot.greeting || '';
+                document.getElementById('bot-system-prompt').value = bot.system_prompt || '';
+                
+                // Set model selections with improved selection logic
+                function selectModelSafely(selectElement, modelName) {
+                    if (!selectElement || !modelName) return;
+                    
+                    // Try to find the exact match first
+                    const exactMatch = Array.from(selectElement.options).find(option => 
+                        option.value.toLowerCase() === modelName.toLowerCase()
+                    );
+                    
+                    if (exactMatch) {
+                        selectElement.value = exactMatch.value;
+                        return;
+                    }
+                    
+                    // If no exact match, try partial match
+                    const partialMatch = Array.from(selectElement.options).find(option => 
+                        option.value.toLowerCase().includes(modelName.toLowerCase())
+                    );
+                    
+                    if (partialMatch) {
+                        selectElement.value = partialMatch.value;
+                        return;
+                    }
+                    
+                    // If no match found, add a new option
+                    const newOption = document.createElement('option');
+                    newOption.value = modelName;
+                    newOption.textContent = `${modelName} (Custom)`;
+                    selectElement.appendChild(newOption);
+                    selectElement.value = modelName;
+                }
+                
+                // Ensure dropdowns are populated before setting values
+                const baseModelSelect = document.getElementById('bot-base-model');
+                const embeddingModelSelect = document.getElementById('bot-embedding-model');
+                
+                // Wait for dropdowns to be populated
+                function checkAndSetModels() {
+                    if (baseModelSelect.options.length > 1 && embeddingModelSelect.options.length > 1) {
+                        if (bot.base_model) {
+                            selectModelSafely(baseModelSelect, bot.base_model);
+                        }
+                        if (bot.embedding_model) {
+                            selectModelSafely(embeddingModelSelect, bot.embedding_model);
+                        }
+                    } else {
+                        // If dropdowns are not populated, try again after a short delay
+                        setTimeout(checkAndSetModels, 100);
+                    }
+                }
+                
+                checkAndSetModels();
+                
+                // Set parameters
+                if (bot.parameters) {
+                    document.getElementById('bot-temperature').value = bot.parameters.temperature || 0.7;
+                    document.getElementById('temperature-value').textContent = bot.parameters.temperature || 0.7;
+                    
+                    document.getElementById('bot-top-p').value = bot.parameters.top_p || 0.9;
+                    document.getElementById('top-p-value').textContent = bot.parameters.top_p || 0.9;
+                    
+                    document.getElementById('bot-max-tokens').value = bot.parameters.max_tokens || 2048;
+                }
+                
+                // Populate knowledge files
+                if (bot.knowledge_files && bot.knowledge_files.length > 0) {
+                    const filesListContainer = document.getElementById('knowledge-files-list');
+                    filesListContainer.innerHTML = '';
+                    
+                    bot.knowledge_files.forEach(filename => {
+                        const fileItem = createKnowledgeFileItem(filename, bot.id);
+                        filesListContainer.appendChild(fileItem);
+                    });
+                }
+            } else {
+                showNotification(`Error loading bot: ${data.message}`, 'error');
+            }
+        } catch (error) {
+            console.error('Error loading bot:', error);
+            showNotification('Error loading bot details', 'error');
+        }
+    }
+}
+
+// Show bot list
+function showBotList() {
+    const botListSection = document.getElementById('bot-list-section');
+    const botEditorSection = document.getElementById('bot-editor-section');
+    const botModalTitle = document.getElementById('bot-modal-title');
+    const createNewBotButton = document.getElementById('create-new-bot-button');
+    const backToListButton = document.getElementById('back-to-bot-list-button');
+    
+    // Show list section, hide editor section
+    botEditorSection.style.display = 'none';
+    botListSection.style.display = 'block';
+    
+    // Update header
+    botModalTitle.textContent = 'Bot Management';
+    createNewBotButton.style.display = 'inline-block';
+    backToListButton.style.display = 'none';
+    
+    // Reload bots
+    loadBots();
+}
+
+// Save bot
+async function saveBot() {
+    try {
+        // Get values from UI
+        const botId = document.getElementById('bot-id').value;
+        const botName = document.getElementById('bot-name').value;
+        const botDescription = document.getElementById('bot-description').value;
+        const botGreeting = document.getElementById('bot-greeting').value;
+        const botBaseModel = document.getElementById('bot-base-model').value;
+        const botEmbeddingModel = document.getElementById('bot-embedding-model').value;
+        const botSystemPrompt = document.getElementById('bot-system-prompt').value;
+        const botTemperature = parseFloat(document.getElementById('bot-temperature').value);
+        const botTopP = parseFloat(document.getElementById('bot-top-p').value);
+        const botMaxTokens = parseInt(document.getElementById('bot-max-tokens').value);
+        
+        // Validate required fields
+        if (!botName || !botBaseModel || !botEmbeddingModel) {
+            showNotification('Please fill in all required fields', 'error');
+            return;
+        }
+        
+        // Prepare bot data
+        const botData = {
+            name: botName,
+            description: botDescription,
+            greeting: botGreeting,
+            base_model: botBaseModel,
+            embedding_model: botEmbeddingModel,
+            system_prompt: botSystemPrompt,
+            parameters: {
+                temperature: botTemperature,
+                top_p: botTopP,
+                max_tokens: botMaxTokens
+            }
+        };
+        
+        let response;
+        
+        if (botId) {
+            // Update existing bot
+            response = await fetch(`/api/bots/${botId}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(botData)
+            });
+        } else {
+            // Create new bot
+            response = await fetch('/api/bots', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(botData)
+            });
+        }
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            showNotification(`Bot ${botId ? 'updated' : 'created'} successfully`);
+            showBotList();
+        } else {
+            showNotification(`Error ${botId ? 'updating' : 'creating'} bot: ${data.message}`, 'error');
+        }
+    } catch (error) {
+        console.error(`Error ${botId ? 'updating' : 'creating'} bot:`, error);
+        showNotification(`Error ${botId ? 'updating' : 'creating'} bot`, 'error');
+    }
+}
+
+// Edit bot
+function editBot(botId) {
+    showBotEditor(botId);
+}
+
+// Confirm delete bot
+function confirmDeleteBot(botId) {
+    if (confirm('Are you sure you want to delete this bot? This action cannot be undone.')) {
+        deleteBot(botId)
+            .then(response => {
+                if (response.status === 'success') {
+                    showNotification('Bot deleted successfully');
+                    // Reload the bot list to update the UI immediately
+                    loadBots();
+                } else {
+                    showNotification(`Error deleting bot: ${response.message}`, 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error deleting bot:', error);
+                showNotification('Error deleting bot', 'error');
+            });
+    }
+}
+
+// Delete bot
+async function deleteBot(botId) {
+    try {
+        const response = await fetch(`/api/bots/${botId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to delete bot');
+        }
+        
+        return await response.json();
+    } catch (error) {
+        console.error('Error:', error);
+        throw error;
+    }
+}
+
+// Upload knowledge files
+async function uploadKnowledgeFiles(botId, files) {
+    if (!botId || !files || files.length === 0) {
+        return;
+    }
+    
+    const formData = new FormData();
+    
+    for (let i = 0; i < files.length; i++) {
+        formData.append('files', files[i]);
+    }
+    
+    try {
+        const response = await fetch(`/api/bots/${botId}/knowledge`, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            showNotification('Knowledge files uploaded successfully');
+            
+            // Update knowledge files list
+            const filesListContainer = document.getElementById('knowledge-files-list');
+            filesListContainer.innerHTML = '';
+            
+            data.bot.knowledge_files.forEach(filename => {
+                const fileItem = createKnowledgeFileItem(filename, botId);
+                filesListContainer.appendChild(fileItem);
+            });
+            
+            // Clear file input
+            document.getElementById('knowledge-file-input').value = '';
+        } else {
+            showNotification(`Error uploading knowledge files: ${data.message}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error uploading knowledge files:', error);
+        showNotification('Error uploading knowledge files', 'error');
+    }
+}
+
+// Create knowledge file item
+function createKnowledgeFileItem(filename, botId) {
+    const fileItem = document.createElement('div');
+    fileItem.className = 'knowledge-file-item';
+    
+    const fileName = document.createElement('div');
+    fileName.className = 'knowledge-file-name';
+    fileName.textContent = filename;
+    
+    const removeButton = document.createElement('button');
+    removeButton.className = 'knowledge-file-remove';
+    removeButton.innerHTML = '<i class="fas fa-times"></i>';
+    removeButton.title = 'Remove file';
+    removeButton.addEventListener('click', () => removeKnowledgeFile(botId, filename));
+    
+    fileItem.appendChild(fileName);
+    fileItem.appendChild(removeButton);
+    
+    return fileItem;
+}
+
+// Remove knowledge file
+async function removeKnowledgeFile(botId, filename) {
+    try {
+        const response = await fetch(`/api/bots/${botId}/knowledge/${filename}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            showNotification('Knowledge file removed successfully');
+            
+            // Update knowledge files list
+            const filesListContainer = document.getElementById('knowledge-files-list');
+            filesListContainer.innerHTML = '';
+            
+            data.bot.knowledge_files.forEach(filename => {
+                const fileItem = createKnowledgeFileItem(filename, botId);
+                filesListContainer.appendChild(fileItem);
+            });
+        } else {
+            showNotification(`Error removing knowledge file: ${data.message}`, 'error');
+        }
+    } catch (error) {
+        console.error('Error removing knowledge file:', error);
+        showNotification('Error removing knowledge file', 'error');
+    }
+}
+
+// Start chat with bot
+function startChatWithBot(botId) {
+    // Close the bot management modal
+    document.getElementById('bot-management-modal').style.display = 'none';
+    
+    // TODO: Implement starting a chat with the selected bot
+    showNotification('Bot chat functionality coming soon!');
+}
+
+// Create a new conversation
+async function createNewConversation() {
+    try {
+        const model = modelSelect.value || currentModel;
+        
+        // Format the date for the title
+        const now = new Date();
+        const dateStr = now.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+        
+        // Create a simple title with date
+        const title = `New Chat - ${dateStr}`;
+        
+        const response = await fetch('/api/conversations', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: title,
+                model: model
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.status === 'success') {
+            currentConversationId = data.conversation_id;
+            
+            // Update page title and header info
+            updatePageTitle(title);
+            updateHeaderInfo(title, model);
+            
+            // Clear chat and add welcome message
+            chatContainer.innerHTML = '';
+            
+            // Check if this is a bot model
+            if (model.startsWith('bot:')) {
+                // Extract bot ID
+                const botId = model.substring(4);
+                
+                // Fetch the bot details to get its name
+                try {
+                    const botResponse = await fetch(`/api/bots/${botId}`);
+                    const botData = await botResponse.json();
+                    
+                    if (botData.status === 'success') {
+                        // Display the bot name in the system message
+                        addMessage(`New conversation started with Bot: ${botData.bot.name}`, false, 'system');
+                    } else {
+                        // Fallback if bot details can't be fetched
+                        addMessage(`New conversation started with model: ${model}`, false, 'system');
+                    }
+                } catch (error) {
+                    console.error('Error fetching bot details:', error);
+                    addMessage(`New conversation started with model: ${model}`, false, 'system');
+                }
+            } else {
+                // Regular model, display as is (remove any workflow: prefix)
+                addMessage(`New conversation started with model: ${model.replace('workflow:', '')}`, false, 'system');
+            }
+            
+            // Reload conversations
+            loadConversations(true); // Force refresh
+            
+            // Set the isNewConversation flag to true
+            isNewConversation = true;
+            
+            return currentConversationId;
+        } else {
+            addMessage(`Error: ${data.message}`, false, 'system');
+            return null;
+        }
+    } catch (error) {
+        addMessage('Failed to create conversation', false, 'system');
+        console.error('Error creating conversation:', error);
+        return null;
+    }
+}
+
+// --- Animated Loading Dots for "MIDAS is doing AI magic..." ---
+let aiMagicDotsInterval = null;
+function startAiMagicDotsAnimation() {
+    // Find the spinner message element
+    const spinner = document.querySelector('.image-loading-spinner');
+    if (!spinner) return;
+    let baseText = 'MIDAS is doing AI magic';
+    let dotCount = 0;
+    // Find the text node inside spinner
+    let textNode = Array.from(spinner.childNodes).find(n => n.nodeType === Node.TEXT_NODE || (n.nodeType === Node.ELEMENT_NODE && n.nodeName === 'SPAN'));
+    if (!textNode) {
+        // fallback: create a span
+        textNode = document.createElement('span');
+        spinner.appendChild(textNode);
+    }
+    function updateDots() {
+        dotCount = (dotCount + 1) % 4;
+        let dots = '.'.repeat(dotCount);
+        textNode.textContent = `${baseText}${dots}`;
+    }
+    // Set initial
+    textNode.textContent = `${baseText}...`;
+    aiMagicDotsInterval = setInterval(updateDots, 500);
+}
+function stopAiMagicDotsAnimation() {
+    if (aiMagicDotsInterval) {
+        clearInterval(aiMagicDotsInterval);
+        aiMagicDotsInterval = null;
+    }
+}
+
+// Show full image overlay
+function showImageOverlay(imgSrc, altText = '') {
+    // Remove existing overlay if present
+    const existingOverlay = document.getElementById('image-overlay-modal');
+    if (existingOverlay) existingOverlay.remove();
+
+    // Create overlay elements
+    const overlay = document.createElement('div');
+    overlay.id = 'image-overlay-modal';
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100vw';
+    overlay.style.height = '100vh';
+    overlay.style.background = 'rgba(0,0,0,0.8)';
+    overlay.style.display = 'flex';
+    overlay.style.alignItems = 'center';
+    overlay.style.justifyContent = 'center';
+    overlay.style.zIndex = '9999';
+
+    // Create image
+    const img = document.createElement('img');
+    img.src = imgSrc;
+    img.alt = altText;
+    img.style.maxWidth = '90vw';
+    img.style.maxHeight = '90vh';
+    img.style.borderRadius = '10px';
+    img.style.boxShadow = '0 4px 32px rgba(0,0,0,0.5)';
+    img.style.background = '#222';
+
+    // Close on click outside image or on ESC
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) overlay.remove();
+    });
+    window.addEventListener('keydown', function escListener(e) {
+        if (e.key === 'Escape') {
+            overlay.remove();
+            window.removeEventListener('keydown', escListener);
+        }
+    });
+    // Add close button
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = '×';
+    closeBtn.style.position = 'absolute';
+    closeBtn.style.top = '32px';
+    closeBtn.style.right = '48px';
+    closeBtn.style.fontSize = '2.2em';
+    closeBtn.style.background = 'transparent';
+    closeBtn.style.color = '#fff';
+    closeBtn.style.border = 'none';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.style.zIndex = '10000';
+    closeBtn.addEventListener('click', () => overlay.remove());
+
+    overlay.appendChild(img);
+    overlay.appendChild(closeBtn);
+    document.body.appendChild(overlay);
+}
+
+// Attach overlay to generated images and full screen button
+function enableImageOverlay(imgElement) {
+    if (!imgElement) return;
+    imgElement.style.cursor = 'zoom-in';
+    imgElement.addEventListener('click', function() {
+        showImageOverlay(imgElement.src, imgElement.alt);
+    });
+}
+
+// Patch 1: When displaying generated image
+// Find code that creates img element with class 'generated-image'
+// After: imageContainer.appendChild(img);
+// Add: enableImageOverlay(img);
+
+// Patch 2: For full screen button, call showImageOverlay with the image src
+// Find code that creates the full screen button and add:
+// fullscreenBtn.addEventListener('click', () => showImageOverlay(img.src, img.alt));
+
+// CSS for image spinner and download button (inject if not present)
+(function injectImageGenCSS() {
+    if (!document.getElementById('image-gen-css')) {
+        const style = document.createElement('style');
+        style.id = 'image-gen-css';
+        style.innerHTML = `
+        .image-loading-spinner { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
+        .image-loading-spinner .xeno-loader {
+            width: 48px;
+            height: 48px;
+            animation: float 2s ease-in-out infinite;
+        }
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+        .generated-image { 
+            border-radius: 8px; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08); 
+            margin: 12px 0;
+            max-width: 100%;
+            cursor: pointer;
+        }
+        .generated-image-container {
+            position: relative;
+            display: inline-block;
+        }
+        .image-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .image-actions button {
+            background: transparent;
+            border: none;
+            color: var(--text-color-muted);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .image-actions button:hover {
+            background-color: var(--hover-color);
+            color: var(--text-color);
+        }
+        .error-message { color: #c00; font-weight: bold; }
+        `;
+        document.head.appendChild(style);
+    }
+})();

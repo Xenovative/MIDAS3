@@ -1,0 +1,11 @@
+name: midas3-llm
+channels:
+  - defaults
+dependencies:
+  - python=3.9
+  - pip
+  - pip:
+    - flask
+    - python-dotenv
+    - requests
+    - ollama
