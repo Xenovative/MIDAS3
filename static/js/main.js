@@ -75,6 +75,10 @@ document.addEventListener('DOMContentLoaded', async function() {
     chatModelElement = document.getElementById('chat-model');
     editTitleButton = document.getElementById('edit-title-button');
     deleteConversationButton = document.getElementById('delete-conversation-button');
+    sidebarToggle = document.getElementById('sidebar-toggle');
+    sidebar = document.querySelector('.sidebar');
+    chatPanel = document.querySelector('.chat-panel');
+    chatInfo = document.querySelector('.chat-info');
     docUploadInput = document.getElementById('doc-upload-input');
     fileUploadButton = document.getElementById('file-upload-button');
     uploadStatus = document.getElementById('upload-status');
@@ -113,6 +117,9 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Initialize bot management
     initializeBotManagement();
+    
+    // Initialize sidebar toggle functionality
+    initSidebarToggle();
 });
 
 // Initialize the application
@@ -122,6 +129,11 @@ async function init() {
     
     // Load conversations
     await loadConversations();
+    
+    // Show landing page if no conversation is active
+    if (!currentConversationId) {
+        showLandingPage();
+    }
     
     // Add event listeners
     addEventListeners();
@@ -777,13 +789,31 @@ function updateHeaderInfo(title, model) {
 
 // Add event listeners
 function addEventListeners() {
-    sendButton.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
+    console.log('Adding event listeners to elements:', { sendButton, messageInput });
+    
+    // Send button click event
+    if (sendButton) {
+        sendButton.addEventListener('click', function(e) {
+            console.log('Send button clicked');
             sendMessage();
-        }
-    });
+        });
+    } else {
+        console.error('Send button element not found!');
+    }
+    
+    // Message input Enter key event
+    if (messageInput) {
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                console.log('Enter key pressed, sending message');
+                sendMessage();
+            }
+        });
+    } else {
+        console.error('Message input element not found!');
+    }
+    
     refreshModelsButton.addEventListener('click', loadModels);
     newChatButton.addEventListener('click', async () => {
         await createNewConversation();
@@ -899,8 +929,8 @@ async function editConversationTitle() {
             addMessage('Failed to rename conversation', false, 'system');
         }
     } catch (error) {
-        console.error('Error renaming conversation:', error);
         addMessage('Error renaming conversation', false, 'system');
+        console.error('Error renaming conversation:', error);
     }
 }
 
@@ -2977,6 +3007,9 @@ async function loadBots() {
         }
     } catch (error) {
         console.error('Error loading bots:', error);
+        
+        // Hide loading, show error message
+        const botListContainer = document.getElementById('bot-list-container');
         botListContainer.innerHTML = `
             <div class="error-state">
                 <p>Error loading bots. Please try again.</p>
@@ -3440,6 +3473,11 @@ async function createNewConversation() {
             // Show system message if secret mode is on
             if (secretChatMode) addSystemSecretChatMessage();
             else removeSystemSecretChatMessage();
+            // Hide landing page when creating a new conversation
+            const landingPage = document.getElementById('landing-page');
+            if (landingPage) {
+                landingPage.style.display = 'none';
+            }
             return currentConversationId;
         } else {
             addMessage(`Error: ${data.message}`, false, 'system');
@@ -3719,4 +3757,325 @@ function toggleSecretChatMode() {
     }
     // Existing logic (system message etc.) remains unchanged
     updateSecretChatUI();
+}
+
+// Function to show the landing page
+function showLandingPage() {
+    const landingPage = document.getElementById('landing-page');
+    const chatContainer = document.getElementById('chat-container');
+    
+    if (!landingPage) return;
+    
+    // Clear any existing messages except the landing page
+    Array.from(chatContainer.children).forEach(child => {
+        if (child.id !== 'landing-page' && !child.classList.contains('system-message')) {
+            child.remove();
+        }
+    });
+    
+    // Show the landing page
+    landingPage.style.display = 'flex';
+    
+    // Populate prompt suggestions
+    const suggestionsContainer = landingPage.querySelector('.prompt-suggestions');
+    if (suggestionsContainer) {
+        suggestionsContainer.innerHTML = '';
+        
+        // Get available models
+        const availableModelIds = Array.from(modelSelect.options).map(option => option.value);
+        console.log('Available models for prompt suggestions:', availableModelIds);
+        
+        // Filter suggestions
+        let filteredSuggestions = promptSuggestions.filter(suggestion => {
+            // If no specific model is required, include it
+            if (!suggestion.model) return true;
+            
+            // For workflow models, check if any workflow is available
+            if (suggestion.model.startsWith('workflow:')) {
+                return workflowModels.length > 0;
+            }
+            
+            // For regular models, check if it's in available models
+            return availableModelIds.includes(suggestion.model);
+        });
+        
+        // Ensure we have at least 8 suggestions if possible
+        if (filteredSuggestions.length < 8) {
+            // Add generic suggestions that don't require specific models
+            const genericSuggestions = [
+                {
+                    title: "Creative Writing",
+                    prompt: "Write a short story about a detective solving a mystery in a small town.",
+                    model: "deepseek-r1:7b",
+                    category: "writing"
+                },
+                {
+                    title: "Coding Help",
+                    prompt: "How do I implement a binary search algorithm?",
+                    model: "codellama:latest",
+                    category: "coding"
+                },
+                {
+                    title: "Travel Planning",
+                    prompt: "Create a 3-day itinerary for visiting Tokyo, Japan.",
+                    model: "mistral:latest",
+                    category: "travel"
+                },
+                {
+                    title: "Philosophy Discussion",
+                    prompt: "Discuss the trolley problem and its ethical implications.",
+                    model: "llama3.1:8b",
+                    category: "philosophy"
+                },
+                {
+                    title: "Recipe Creation",
+                    prompt: "Create a recipe for a vegetarian dinner that's quick to prepare.",
+                    model: "phi3.5:latest",
+                    category: "cooking"
+                },
+                {
+                    title: "Language Learning",
+                    prompt: "Teach me 10 common phrases in Spanish with their pronunciations.",
+                    model: "deepseek-r1:7b",
+                    category: "language"
+                }
+            ];
+            
+            // Add generic suggestions until we have 8
+            for (let i = 0; i < genericSuggestions.length && filteredSuggestions.length < 8; i++) {
+                if (!filteredSuggestions.some(s => s.title === genericSuggestions[i].title)) {
+                    filteredSuggestions.push(genericSuggestions[i]);
+                }
+            }
+        }
+        
+        // Always show exactly 8 suggestions if possible
+        filteredSuggestions = filteredSuggestions.slice(0, 8);
+        
+        console.log(`Displaying ${filteredSuggestions.length} prompt suggestions`);
+        
+        // Create cards for each suggestion
+        filteredSuggestions.forEach(suggestion => {
+            const card = document.createElement('div');
+            card.className = 'prompt-card';
+            card.dataset.prompt = suggestion.prompt;
+            card.dataset.model = suggestion.model;
+            
+            card.innerHTML = `
+                <h3>${suggestion.title}</h3>
+                <p>${suggestion.prompt}</p>
+                <div class="prompt-model">model: ${suggestion.model || 'Any'}</div>
+            `;
+            
+            card.addEventListener('click', () => {
+                usePromptSuggestion(suggestion.prompt, suggestion.model);
+            });
+            
+            suggestionsContainer.appendChild(card);
+        });
+        
+        // Initialize carousel navigation
+        initCarouselNavigation();
+    }
+}
+
+// Function to initialize carousel navigation
+function initCarouselNavigation() {
+    const container = document.querySelector('.prompt-suggestions');
+    const prevBtn = document.querySelector('.carousel-button.prev');
+    const nextBtn = document.querySelector('.carousel-button.next');
+    
+    if (!container || !prevBtn || !nextBtn) return;
+    
+    // Calculate the scroll amount (width of one card + gap)
+    const scrollAmount = 250 + 16; // card width + gap
+    
+    // Add click event to previous button
+    prevBtn.addEventListener('click', () => {
+        // Check if at the beginning
+        if (container.scrollLeft <= 0) {
+            // Jump to the end (loop around)
+            container.scrollLeft = container.scrollWidth;
+            // Then scroll back one card to create smooth transition
+            setTimeout(() => {
+                container.scrollBy({
+                    left: -scrollAmount,
+                    behavior: 'smooth'
+                });
+            }, 10);
+        } else {
+            // Normal scroll
+            container.scrollBy({
+                left: -scrollAmount,
+                behavior: 'smooth'
+            });
+        }
+    });
+    
+    // Add click event to next button
+    nextBtn.addEventListener('click', () => {
+        const maxScrollLeft = container.scrollWidth - container.clientWidth;
+        
+        // Check if at the end
+        if (container.scrollLeft >= maxScrollLeft - 10) {
+            // Jump to the beginning (loop around)
+            container.scrollLeft = 0;
+        } else {
+            // Normal scroll
+            container.scrollBy({
+                left: scrollAmount,
+                behavior: 'smooth'
+            });
+        }
+    });
+    
+    // Always show navigation buttons since we're looping
+    prevBtn.style.display = 'flex';
+    nextBtn.style.display = 'flex';
+    
+    // Add keyboard navigation
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') {
+            prevBtn.click();
+        } else if (e.key === 'ArrowRight') {
+            nextBtn.click();
+        }
+    });
+}
+
+// Sample prompt suggestions for different models
+const promptSuggestions = [
+    {
+        title: "Creative Writing",
+        prompt: "Write a short story about a time traveler who accidentally changes history.",
+        model: "llama3:8b",
+        category: "writing"
+    },
+    {
+        title: "Code Explanation",
+        prompt: "Explain how async/await works in JavaScript with examples.",
+        model: "mistral:7b",
+        category: "coding"
+    },
+    {
+        title: "Image Generation - Flux Enhanced",
+        prompt: "A futuristic cityscape with flying cars and neon lights, digital art style.",
+        model: "workflow:Flux Enhanced",
+        category: "image"
+    },
+    {
+        title: "Research Summary",
+        prompt: "Summarize the latest developments in quantum computing.",
+        model: "llama3:8b",
+        category: "research"
+    },
+    {
+        title: "Business Idea",
+        prompt: "Generate a business plan for a sustainable food delivery service.",
+        model: "gemma:7b",
+        category: "business"
+    },
+    {
+        title: "Data Analysis",
+        prompt: "How would you analyze customer churn data to improve retention?",
+        model: "mistral:7b",
+        category: "data"
+    },
+    {
+        title: "Coding Assistant",
+        prompt: "Write a Python function that calculates the Fibonacci sequence recursively with memoization.",
+        model: "llama2",
+        category: "coding"
+    },
+    {
+        title: "Learning Assistance",
+        prompt: "Explain the concept of neural networks in simple terms.",
+        model: "mistral:latest",
+        category: "education"
+    }
+];
+
+// Function to use a prompt suggestion
+function usePromptSuggestion(prompt, model) {
+    // Set the model if specified
+    if (model && Array.from(modelSelect.options).some(option => option.value === model)) {
+        modelSelect.value = model;
+        currentModel = model;
+    }
+    
+    // Set the prompt in the message input
+    messageInput.value = prompt;
+    
+    // Hide the landing page
+    const landingPage = document.getElementById('landing-page');
+    if (landingPage) {
+        landingPage.style.display = 'none';
+    }
+    
+    // Focus on the message input
+    messageInput.focus();
+}
+
+// Function to initialize carousel navigation
+function initCarouselNavigation() {
+    const container = document.querySelector('.prompt-suggestions');
+    const prevBtn = document.querySelector('.carousel-button.prev');
+    const nextBtn = document.querySelector('.carousel-button.next');
+    
+    if (!container || !prevBtn || !nextBtn) return;
+    
+    // Calculate the scroll amount (width of one card + gap)
+    const scrollAmount = 250 + 16; // card width + gap
+    
+    // Add click event to previous button
+    prevBtn.addEventListener('click', () => {
+        // Check if at the beginning
+        if (container.scrollLeft <= 0) {
+            // Jump to the end (loop around)
+            container.scrollLeft = container.scrollWidth;
+            // Then scroll back one card to create smooth transition
+            setTimeout(() => {
+                container.scrollBy({
+                    left: -scrollAmount,
+                    behavior: 'smooth'
+                });
+            }, 10);
+        } else {
+            // Normal scroll
+            container.scrollBy({
+                left: -scrollAmount,
+                behavior: 'smooth'
+            });
+        }
+    });
+    
+    // Add click event to next button
+    nextBtn.addEventListener('click', () => {
+        const maxScrollLeft = container.scrollWidth - container.clientWidth;
+        
+        // Check if at the end
+        if (container.scrollLeft >= maxScrollLeft - 10) {
+            // Jump to the beginning (loop around)
+            container.scrollLeft = 0;
+        } else {
+            // Normal scroll
+            container.scrollBy({
+                left: scrollAmount,
+                behavior: 'smooth'
+            });
+        }
+    });
+    
+    // Always show navigation buttons since we're looping
+    prevBtn.style.display = 'flex';
+    nextBtn.style.display = 'flex';
+    
+    // Add keyboard navigation
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowLeft') {
+            prevBtn.click();
+        } else if (e.key === 'ArrowRight') {
+            nextBtn.click();
+        }
+    });
 }

@@ -1098,11 +1098,6 @@
             right: auto;
         } */
 
-        .user-message:hover .message-actions,
-        .assistant-message:hover .message-actions {
-            opacity: 1; /* Show on hover */
-        }
-
         .message-actions button {
             background: none;
             border: none;
@@ -1784,6 +1779,154 @@
         .fade-to-ashes {
             animation: fadeToAshes 1.1s forwards;
         }
+        
+        .landing-page {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        
+        .landing-page h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            color: var(--text-accent);
+        }
+        
+        .landing-page p {
+            font-size: 1.1rem;
+            margin-bottom: 2rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+        }
+        
+        .prompt-suggestions-container {
+            position: relative;
+            width: 100%;
+            margin-top: 1.5rem;
+            overflow: visible;
+            padding: 0 50px;
+        }
+        
+        .prompt-suggestions-container::before,
+        .prompt-suggestions-container::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            width: 60px;
+            height: 100%;
+            z-index: 5;
+            pointer-events: none;
+        }
+        
+        .prompt-suggestions-container::before {
+            left: 50px;
+            background: linear-gradient(to right, var(--bg-primary) 0%, transparent 100%);
+        }
+        
+        .prompt-suggestions-container::after {
+            right: 50px;
+            background: linear-gradient(to left, var(--bg-primary) 0%, transparent 100%);
+        }
+        
+        .prompt-suggestions {
+            display: flex;
+            flex-direction: row;
+            gap: 1rem;
+            width: 100%;
+            overflow: hidden;
+            scroll-behavior: smooth;
+            padding: 1rem 0;
+        }
+        
+        .prompt-card {
+            background-color: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 1rem;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            border: 1px solid var(--border-color);
+            min-width: 250px;
+            max-width: 300px;
+            flex: 0 0 auto;
+        }
+        
+        .prompt-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            border-color: var(--text-accent);
+        }
+        
+        .prompt-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-primary);
+        }
+        
+        .prompt-card p {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 0;
+        }
+        
+        .prompt-model {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+            font-style: italic;
+        }
+        
+        .landing-logo {
+            width: auto;
+            height: 120px;
+            margin-bottom: 1.5rem;
+            animation: pulse 3s infinite alternate;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.05); }
+        }
+        
+        .carousel-button {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background-color: var(--bg-accent);
+            color: var(--text-on-accent);
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 10;
+            opacity: 0.8;
+            transition: opacity 0.2s, transform 0.2s;
+        }
+        
+        .carousel-button:hover {
+            opacity: 1;
+            transform: translateY(-50%) scale(1.1);
+        }
+        
+        .carousel-button.prev {
+            left: 0;
+        }
+        
+        .carousel-button.next {
+            right: 0;
+        }
+        
+        .carousel-button i {
+            font-size: 1.2rem;
+        }
     </style>
 </head>
 <body>
@@ -1851,7 +1994,26 @@
             
             <div class="chat-panel">
                 <div id="chat-container" class="chat-container">
-                    <!-- Chat messages will appear here -->
+                    <!-- Landing page will be shown when no conversation is active -->
+                    <div id="landing-page" class="landing-page">
+                        <img src="/static/assets/bigxeno.png" alt="MIDAS Logo" class="landing-logo">
+                        <h1>Welcome to MIDAS 3.0</h1>
+                        <p>Your AI assistant for chat, coding, image generation, and more. Select a model and try one of these prompts to get started.</p>
+                        
+                        <div class="prompt-suggestions-container">
+                            <button class="carousel-button prev">
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <div class="prompt-suggestions">
+                                <!-- Prompt suggestions will be dynamically added here -->
+                            </div>
+                            <button class="carousel-button next">
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- System welcome message shown by default -->
                     <div class="system-message">
                         Welcome to MIDAS3.0. Select a model and start chatting!
                     </div>
