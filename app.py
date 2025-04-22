@@ -97,13 +97,19 @@ def create_conversation():
         data = request.get_json()
         title = data.get('title', f"New Chat {time.strftime('%Y-%m-%d %H:%M')}")
         model = data.get('model', DEFAULT_MODEL)
+        secret = data.get('secret', False)
         
-        conversation_id = db.create_conversation(title, model)
+        if secret:
+            # Do not save to DB, just return a fake ID
+            conversation_id = f"secret-{uuid.uuid4()}"
+        else:
+            conversation_id = db.create_conversation(title, model)
         
         return jsonify({
             'conversation_id': conversation_id,
             'title': title,
             'model': model,
+            'secret': secret,
             'status': 'success'
         })
     except Exception as e:
@@ -356,6 +362,7 @@ def add_message(conversation_id):
         content = data.get('content')
         thinking = data.get('thinking')
         images = data.get('images') # Get images from request
+        secret = data.get('secret', False)
         
         if not role or not content:
             return jsonify({
@@ -363,8 +370,12 @@ def add_message(conversation_id):
                 'status': 'error'
             }), 400
             
-        # Pass images to db.add_message
-        message_id = db.add_message(conversation_id, role, content, thinking, images) 
+        if secret:
+            # Do not save to DB, just return a fake message ID
+            message_id = f"secret-{uuid.uuid4()}"
+        else:
+            # Pass images to db.add_message
+            message_id = db.add_message(conversation_id, role, content, thinking, images) 
         
         return jsonify({
             'message_id': message_id,
@@ -388,6 +399,7 @@ def generate():
         model_name = data.get('model', config.DEFAULT_MODEL) # Get model from request or config
         attachment_filename = data.get('attachment_filename') # Get attachment filename
         images = data.get('images') # Get optional images list (base64 strings)
+        secret = data.get('secret', False)
         
         if not conversation_id:
             return jsonify({'error': 'Conversation ID is required'}), 400
@@ -402,8 +414,11 @@ def generate():
 
         # --- 1. Add User Message to DB ---
         try:
-            # Pass attachment_filename when adding user message
-            user_message_id = db.add_message(conversation_id, 'user', user_message, attachment_filename=attachment_filename)
+            if not secret:
+                # Pass attachment_filename when adding user message
+                user_message_id = db.add_message(conversation_id, 'user', user_message, attachment_filename=attachment_filename)
+            else:
+                user_message_id = f"secret-{uuid.uuid4()}"
         except Exception as e:
             logging.error(f"Error adding user message to DB: {e}")
             # Continue processing, but log the error
@@ -413,8 +428,8 @@ def generate():
         use_rag = False
         retrieved_context = ""
         
-        # Check if any documents exist in the vector store for this conversation
-        if rag.has_documents(conversation_id=conversation_id):
+        # Check if any documents exist in the vector store for this conversation (skip for secret)
+        if not secret and rag.has_documents(conversation_id=conversation_id):
             app.logger.info(f"Documents found for conversation {conversation_id}, using RAG")
             use_rag = True
             # Retrieve context based on the user message from this conversation's collection
@@ -424,8 +439,10 @@ def generate():
         # --- End RAG Integration ---
         
         # --- Chat History Integration ---
-        # Get previous messages for this conversation to use as context
-        previous_messages = db.get_conversation_messages(conversation_id)
+        if not secret:
+            previous_messages = db.get_conversation_messages(conversation_id)
+        else:
+            previous_messages = []
         
         # Format the chat history for the model - Ollama expects an array of messages
         # Each message should have a role (user or assistant) and content
@@ -456,8 +473,7 @@ def generate():
         
         # Add previous messages to the context
         for msg in history_messages:
-            if msg['role'] in ['user', 'assistant']:  # Only include user and assistant messages
-                # Create a clean message object with just role and content
+            if msg['role'] in ['user', 'assistant']:
                 clean_msg = {
                     "role": msg['role'],
                     "content": msg['content']
@@ -470,33 +486,18 @@ def generate():
             "content": user_message
         }
         
-        # If images are present, add them to the user message
         if images:
             user_msg["images"] = images
         
-        # Check for system prompt in the request
         system_prompt = data.get('system_prompt', '')
-        
-        # If a system prompt is provided, add it to the messages
         if system_prompt:
             system_msg = {
                 "role": "system",
                 "content": system_prompt
             }
             messages.insert(0, system_msg)
-        
-        # Add the current user message to the messages array
         messages.append(user_msg)
-        
-        # Improved logging to better understand what's happening with chat history
-        previous_msg_count = len(messages) - 1  # Subtract 1 to exclude the current message
-        app.logger.info(f"Conversation {conversation_id}: Found {len(previous_messages)} total messages in DB")
-        app.logger.info(f"Conversation {conversation_id}: Using {previous_msg_count} previous messages as context")
-        
-        # Log the first few messages for debugging
-        if previous_msg_count > 0:
-            app.logger.info(f"First few context messages: {[m.get('content', '')[:30] + '...' for m in messages[:-1][:3]]}")
-        # --- End Chat History Integration ---
+        # (Generation logic continues unchanged)
         
         # Check if the model supports thinking process
         supports_thinking = model_name in THINKING_MODELS
@@ -573,35 +574,37 @@ Answer:"""
                     full_response = clean_response.strip()
                 
                 # Save the assistant's response to the database and get its ID
-                import sqlite3
-                DB_PATH = os.path.join('data', 'conversations.db')
-                conn = sqlite3.connect(DB_PATH)
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO messages 
-                    (conversation_id, role, content, thinking, images, attachment_filename) 
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    conversation_id,
-                    'assistant',
-                    full_response,
-                    thinking,
-                    json.dumps([None]),  # images - stored as JSON list of base64 strings
-                    None,  # attachment_filename
-                ))
-                conn.commit()
-                conn.close()
+                if not secret:
+                    import sqlite3
+                    DB_PATH = os.path.join('data', 'conversations.db')
+                    conn = sqlite3.connect(DB_PATH)
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT INTO messages 
+                        (conversation_id, role, content, thinking, images, attachment_filename) 
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        conversation_id,
+                        'assistant',
+                        full_response,
+                        thinking,
+                        json.dumps([None]),  # images - stored as JSON list of base64 strings
+                        None,  # attachment_filename
+                    ))
+                    conn.commit()
+                    conn.close()
                 
                 # Check if this is the first message exchange for this conversation
                 # We can determine this by counting the messages after our new ones are added
-                conversation_messages = db.get_conversation_messages(conversation_id)
-                is_first_exchange = len(conversation_messages) <= 2  # Just the user message and this assistant message
+                if not secret:
+                    conversation_messages = db.get_conversation_messages(conversation_id)
+                    is_first_exchange = len(conversation_messages) <= 2  # Just the user message and this assistant message
                 
                 # Send the final message with the complete response AND the message IDs
-                yield f"data: {json.dumps({'full_response': full_response, 'thinking': thinking, 'done': True, 'is_first_exchange': is_first_exchange})}\n\n"
+                yield f"data: {json.dumps({'full_response': full_response, 'thinking': thinking, 'done': True, 'is_first_exchange': is_first_exchange if not secret else False})}\n\n"
                 
                 # Trigger title generation for first exchanges
-                if is_first_exchange:
+                if not secret and is_first_exchange:
                     try:
                         # Attempt to generate a title for the conversation
                         app.logger.info(f"Attempting to generate title for first exchange in conversation {conversation_id}")
@@ -948,9 +951,6 @@ def generate_image():
     else:
         # If no seed specified, use a random seed
         seed = random.randint(0, 2147483647)
-        
-    # Store the current seed as the last used seed
-    app.last_used_seed = seed
         
     # Parse aspect ratio
     width, height = 1024, 1024  # Default size

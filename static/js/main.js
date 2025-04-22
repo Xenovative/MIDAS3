@@ -75,10 +75,6 @@ document.addEventListener('DOMContentLoaded', async function() {
     chatModelElement = document.getElementById('chat-model');
     editTitleButton = document.getElementById('edit-title-button');
     deleteConversationButton = document.getElementById('delete-conversation-button');
-    sidebarToggle = document.getElementById('sidebar-toggle');
-    sidebar = document.querySelector('.sidebar');
-    chatPanel = document.querySelector('.chat-panel');
-    chatInfo = document.querySelector('.chat-info');
     docUploadInput = document.getElementById('doc-upload-input');
     fileUploadButton = document.getElementById('file-upload-button');
     uploadStatus = document.getElementById('upload-status');
@@ -123,9 +119,6 @@ document.addEventListener('DOMContentLoaded', async function() {
 async function init() {
     // Load available models
     await loadModels();
-    
-    // Initialize sidebar toggle
-    initSidebarToggle();
     
     // Load conversations
     await loadConversations();
@@ -560,11 +553,17 @@ async function loadConversation(conversationId) {
                 }
             });
         } else {
-            addMessage(`Error: ${data.message}`, false, 'system');
+            // Suppress error if in secret chat mode
+            if (!(secretChatMode || currentConversationSecret)) {
+                addMessage(`Error: ${data.message}`, false, 'system');
+            }
         }
     } catch (error) {
         console.error('Error loading conversation:', error);
-        addMessage('Failed to load conversation', false, 'system');
+        // Suppress error if in secret chat mode
+        if (!(secretChatMode || currentConversationSecret)) {
+            addMessage('Failed to load conversation', false, 'system');
+        }
     } finally {
         removeLoading();
     }
@@ -3320,7 +3319,7 @@ async function uploadKnowledgeFiles(botId, files) {
     if (!botId || !files || files.length === 0) {
         return;
     }
-    
+
     const formData = new FormData();
     
     for (let i = 0; i < files.length; i++) {
@@ -3421,74 +3420,26 @@ function startChatWithBot(botId) {
 async function createNewConversation() {
     try {
         const model = modelSelect.value || currentModel;
-        
-        // Format the date for the title
         const now = new Date();
-        const dateStr = now.toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
+        const dateStr = now.toLocaleDateString('en-US', {
+            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
         });
-        
-        // Create a simple title with date
         const title = `New Chat - ${dateStr}`;
-        
         const response = await fetch('/api/conversations', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                title: title,
-                model: model
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, model, secret: secretChatMode })
         });
-        
         const data = await response.json();
-        
         if (data.status === 'success') {
             currentConversationId = data.conversation_id;
-            
-            // Update page title and header info
-            updatePageTitle(title);
-            updateHeaderInfo(title, model);
-            
-            // Clear chat and add welcome message
-            chatContainer.innerHTML = '';
-            
-            // Check if this is a bot model
-            if (model.startsWith('bot:')) {
-                // Extract bot ID
-                const botId = model.substring(4);
-                
-                // Fetch the bot details to get its name
-                try {
-                    const botResponse = await fetch(`/api/bots/${botId}`);
-                    const botData = await botResponse.json();
-                    
-                    if (botData.status === 'success') {
-                        // Display the bot name in the system message
-                        addMessage(`New conversation started with Bot: ${botData.bot.name}`, false, 'system');
-                    } else {
-                        // Fallback if bot details can't be fetched
-                        addMessage(`New conversation started with model: ${model}`, false, 'system');
-                    }
-                } catch (error) {
-                    console.error('Error fetching bot details:', error);
-                    addMessage(`New conversation started with model: ${model}`, false, 'system');
-                }
-            } else {
-                // Regular model, display as is (remove any workflow: prefix)
-                addMessage(`New conversation started with model: ${model.replace('workflow:', '')}`, false, 'system');
-            }
-            
-            // Reload conversations
-            loadConversations(true); // Force refresh
-            
-            // Set the isNewConversation flag to true
+            currentConversationSecret = !!data.secret;
+            loadConversation(currentConversationId);
+            loadConversations(true);
             isNewConversation = true;
-            
+            // Show system message if secret mode is on
+            if (secretChatMode) addSystemSecretChatMessage();
+            else removeSystemSecretChatMessage();
             return currentConversationId;
         } else {
             addMessage(`Error: ${data.message}`, false, 'system');
@@ -3500,6 +3451,58 @@ async function createNewConversation() {
         return null;
     }
 }
+
+// --- Secret Chat Mode State ---
+let secretChatMode = false;
+let currentConversationSecret = false;
+
+function toggleSecretChatMode() {
+    secretChatMode = !secretChatMode;
+    const secretButton = document.getElementById('toggle-secret-chat');
+    const chatTitle = document.getElementById('chat-title');
+    const chatContainer = document.getElementById('chat-container');
+    if (secretChatMode) {
+        // Always clear chat content and conversation state when entering secret chat
+        currentConversationId = null;
+        if (chatContainer) chatContainer.innerHTML = '';
+        if (chatTitle) chatTitle.textContent = 'Secret Chat';
+        secretButton.classList.add('secret-active');
+        addSystemSecretChatMessage();
+    } else {
+        secretButton.classList.remove('secret-active');
+        // Fade out all messages from the chat container when secret mode is toggled off
+        if (chatContainer) {
+            const messages = Array.from(chatContainer.children);
+            if (messages.length > 0) {
+                messages.forEach((msg, idx) => {
+                    msg.classList.add('fade-to-ashes');
+                    setTimeout(() => {
+                        if (msg.parentNode) msg.parentNode.removeChild(msg);
+                        // After last message, show system message
+                        if (idx === messages.length - 1) {
+                            addMessage('Secret chat messages have faded into ashes and are gone forever.', false, 'system');
+                        }
+                    }, 1100);
+                });
+            } else {
+                // If no messages, still show system message
+                addMessage('Secret chat messages have faded into ashes and are gone forever.', false, 'system');
+            }
+        }
+        // Restore chat title to default
+        if (chatTitle) chatTitle.textContent = 'New Chat';
+    }
+    // Existing logic (system message etc.) remains unchanged
+    updateSecretChatUI();
+}
+
+// Ensure secret indicator is hidden on load
+window.addEventListener('DOMContentLoaded', function() {
+    const indicator = document.getElementById('secret-chat-indicator');
+    if (indicator) indicator.style.display = 'none';
+    const btn = document.getElementById('toggle-secret-chat');
+    if (btn) btn.classList.remove('secret-active');
+});
 
 // --- Animated Loading Dots for "MIDAS is doing AI magic..." ---
 let aiMagicDotsInterval = null;
@@ -3660,3 +3663,60 @@ function enableImageOverlay(imgElement) {
         document.head.appendChild(style);
     }
 })();
+
+function addSystemSecretChatMessage() {
+    // Only add if not already present
+    if (!document.getElementById('system-secret-chat-msg')) {
+        const chatContainer = document.getElementById('chat-container');
+        const div = document.createElement('div');
+        div.className = 'system-message';
+        div.id = 'system-secret-chat-msg';
+        div.innerHTML = '<i class="fas fa-user-secret"></i> Secret Chat is enabled. Messages will not be saved.';
+        chatContainer.insertBefore(div, chatContainer.firstChild);
+    }
+}
+
+function removeSystemSecretChatMessage() {
+    const msg = document.getElementById('system-secret-chat-msg');
+    if (msg) msg.remove();
+}
+
+function toggleSecretChatMode() {
+    secretChatMode = !secretChatMode;
+    const secretButton = document.getElementById('toggle-secret-chat');
+    const chatTitle = document.getElementById('chat-title');
+    const chatContainer = document.getElementById('chat-container');
+    if (secretChatMode) {
+        // Always clear chat content and conversation state when entering secret chat
+        currentConversationId = null;
+        if (chatContainer) chatContainer.innerHTML = '';
+        if (chatTitle) chatTitle.textContent = 'Secret Chat';
+        secretButton.classList.add('secret-active');
+        addSystemSecretChatMessage();
+    } else {
+        secretButton.classList.remove('secret-active');
+        // Fade out all messages from the chat container when secret mode is toggled off
+        if (chatContainer) {
+            const messages = Array.from(chatContainer.children);
+            if (messages.length > 0) {
+                messages.forEach((msg, idx) => {
+                    msg.classList.add('fade-to-ashes');
+                    setTimeout(() => {
+                        if (msg.parentNode) msg.parentNode.removeChild(msg);
+                        // After last message, show system message
+                        if (idx === messages.length - 1) {
+                            addMessage('Secret chat messages have faded into ashes and are gone forever.', false, 'system');
+                        }
+                    }, 1100);
+                });
+            } else {
+                // If no messages, still show system message
+                addMessage('Secret chat messages have faded into ashes and are gone forever.', false, 'system');
+            }
+        }
+        // Restore chat title to default
+        if (chatTitle) chatTitle.textContent = 'New Chat';
+    }
+    // Existing logic (system message etc.) remains unchanged
+    updateSecretChatUI();
+}

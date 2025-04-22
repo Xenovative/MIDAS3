@@ -1749,6 +1749,41 @@
             display: block;
             max-width: 100%;
         }
+        
+        .sidebar-button.secret-active {
+            background-color: #222a3a !important;
+            color: #ffd700 !important;
+            border: 2px solid #ffd700 !important;
+            box-shadow: 0 0 8px #ffd70044;
+            transform: scale(1.05);
+        }
+        
+        /* Fading into ashes animation */
+        @keyframes fadeToAshes {
+            0% {
+                opacity: 1;
+                filter: grayscale(0%) blur(0px);
+                transform: scale(1) translateY(0);
+            }
+            60% {
+                opacity: 0.6;
+                filter: grayscale(80%) blur(1px);
+                transform: scale(0.98) translateY(-6px);
+            }
+            80% {
+                opacity: 0.2;
+                filter: grayscale(100%) blur(3px);
+                transform: scale(0.96) translateY(-12px);
+            }
+            100% {
+                opacity: 0;
+                filter: grayscale(100%) blur(6px);
+                transform: scale(0.95) translateY(-20px);
+            }
+        }
+        .fade-to-ashes {
+            animation: fadeToAshes 1.1s forwards;
+        }
     </style>
 </head>
 <body>
@@ -1795,6 +1830,10 @@
                     <button id="new-chat-button" class="new-chat-button">
                         <i class="fas fa-plus"></i>
                         <span>New Chat</span>
+                    </button>
+                    <button id="toggle-secret-chat" class="sidebar-button" onclick="toggleSecretChatMode()">
+                        <i class="fas fa-user-secret"></i>
+                        <span>Secret Chat</span>
                     </button>
                     <button id="manage-bots-button" class="sidebar-button">
                         <i class="fas fa-robot"></i>

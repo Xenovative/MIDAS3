@@ -92,3 +92,11 @@ yarn-error.log*
 # System files
 .DS_Store
 Thumbs.db
+
+# Databases
+*.db
+data/conversations.db
+database.db
+
+# Bot info
+/data/bots/
