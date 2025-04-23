@@ -29,6 +29,9 @@ let eventSource = null;
 let messageTracker = new Set(); // Track message IDs to prevent duplicates
 let currentAttachmentFilename = null; // Track attached file for the current message draft
 let isNewConversation = false; // NEW GLOBAL VARIABLE
+let isAgentBot = false; // Track if current model is an agent bot
+let agentTools = []; // Track available tools for current agent
+let agentThinking = ""; // Store agent thinking process
 
 // Global variables for preferences management
 let userPreferences = {};
@@ -2911,6 +2914,103 @@ async function populateModelDropdowns() {
     } catch (error) {
         console.error('Error fetching models for bot editor:', error);
         // Show error message
+        showNotification('Failed to load models. Please try again.', 'error');
+    }
+}
+
+// Utility function to populate a model dropdown
+function populateModelDropdown(selectElement, models, selectedModel, includeNoneOption = false) {
+    selectElement.innerHTML = '';
+    if (includeNoneOption) {
+        const noneOption = document.createElement('option');
+        noneOption.value = '';
+        noneOption.textContent = 'None (use first available)';
+        selectElement.appendChild(noneOption);
+    }
+    models.forEach(model => {
+        const option = document.createElement('option');
+        let value, label;
+        if (typeof model === 'string') {
+            value = label = model;
+        } else if (typeof model === 'object') {
+            value = model.name || model.id || model.model_id;
+            label = model.name || model.id || model.model_id;
+        }
+        option.value = value;
+        option.textContent = label;
+        if (selectedModel && value === selectedModel) {
+            option.selected = true;
+        }
+        selectElement.appendChild(option);
+    });
+}
+
+// Refactor settings modal to use utility
+function populatePreferencesUI() {
+    // Populate default model dropdown
+    const defaultModelSelect = document.getElementById('default-model');
+    // Sort models to put the default model first
+    const sortedModels = [...availableModels];
+    if (userPreferences.default_model) {
+        const defaultModelIndex = sortedModels.findIndex(model => model === userPreferences.default_model);
+        if (defaultModelIndex !== -1) {
+            const defaultModel = sortedModels.splice(defaultModelIndex, 1)[0];
+            sortedModels.unshift(defaultModel);
+        }
+    }
+    populateModelDropdown(defaultModelSelect, sortedModels, userPreferences.default_model, true);
+
+    // Populate embedding model dropdown
+    const embeddingModelSelect = document.getElementById('default-embedding-model');
+    populateModelDropdown(embeddingModelSelect, availableEmbeddingModels, userPreferences.default_embedding_model);
+
+    // Populate visible models checkboxes
+    const visibleModelsContainer = document.getElementById('visible-models-container');
+    visibleModelsContainer.innerHTML = '';
+    availableModels.forEach(model => {
+        const label = document.createElement('label');
+        label.className = 'checkbox-label';
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = model;
+        checkbox.checked = userPreferences.visible_models.length === 0 || userPreferences.visible_models.includes(model);
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(' ' + model));
+        visibleModelsContainer.appendChild(label);
+    });
+
+    // Set theme radio buttons
+    const themeRadios = document.querySelectorAll('input[name="theme"]');
+    themeRadios.forEach(radio => {
+        if (radio.value === userPreferences.theme) {
+            radio.checked = true;
+        }
+    });
+    // Set thinking process checkbox
+    const showThinkingCheckbox = document.getElementById('show-thinking');
+    showThinkingCheckbox.checked = userPreferences.show_thinking || false;
+}
+
+// Refactor bot modal (populateModelDropdowns) to use utility
+async function populateModelDropdowns() {
+    try {
+        // Fetch base models
+        const modelsResponse = await fetch('/api/models');
+        const modelsData = await modelsResponse.json();
+        // Fetch embedding models
+        const embeddingResponse = await fetch('/api/embedding_models');
+        const embeddingData = await embeddingResponse.json();
+        // Get the select elements
+        const baseModelSelect = document.getElementById('bot-base-model');
+        const embeddingModelSelect = document.getElementById('bot-embedding-model');
+        if (modelsData.status === 'success' && modelsData.models) {
+            populateModelDropdown(baseModelSelect, modelsData.models);
+        }
+        if (embeddingData.status === 'success' && embeddingData.models) {
+            populateModelDropdown(embeddingModelSelect, embeddingData.models);
+        }
+    } catch (error) {
+        console.error('Error fetching models for bot editor:', error);
         showNotification('Failed to load models. Please try again.', 'error');
     }
 }
