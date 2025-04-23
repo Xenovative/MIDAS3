@@ -1789,6 +1789,14 @@
             max-width: 800px;
             margin: 0 auto;
             text-align: center;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.8s ease-out, transform 0.8s ease-out;
+        }
+        
+        .landing-page.visible {
+            opacity: 1;
+            transform: translateY(0);
         }
         
         .landing-page h1 {
@@ -2011,11 +2019,6 @@
                                 <i class="fas fa-chevron-right"></i>
                             </button>
                         </div>
-                    </div>
-                    
-                    <!-- System welcome message shown by default -->
-                    <div class="system-message">
-                        Welcome to MIDAS3.0. Select a model and start chatting!
                     </div>
                 </div>
                 

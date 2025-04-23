@@ -141,15 +141,28 @@ async function init() {
 
 // Theme toggle functionality
 function initThemeToggle() {
-    // Check for saved theme preference or use preferred color scheme
-    const savedTheme = localStorage.getItem('theme') || 
+    // Get theme from user preferences if available, otherwise fallback to localStorage or system preference
+    let preferredTheme;
+    
+    if (typeof userPreferences !== 'undefined' && userPreferences.theme) {
+        // Use theme from user preferences
+        preferredTheme = userPreferences.theme;
+        
+        // Handle 'system' theme preference
+        if (preferredTheme === 'system') {
+            preferredTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+    } else {
+        // Fallback to localStorage or system preference
+        preferredTheme = localStorage.getItem('theme') || 
                       (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    }
     
     // Apply the theme
-    setTheme(savedTheme);
+    setTheme(preferredTheme);
     
     // Update the toggle button icon
-    updateThemeIcon(savedTheme);
+    updateThemeIcon(preferredTheme);
     
     // Add event listener to toggle button
     themeToggle.addEventListener('click', () => {
@@ -159,7 +172,33 @@ function initThemeToggle() {
         setTheme(newTheme);
         updateThemeIcon(newTheme);
         localStorage.setItem('theme', newTheme);
+        
+        // If we have access to the preferences API, update the user preferences
+        if (typeof userPreferences !== 'undefined') {
+            // Update local preferences object
+            userPreferences.theme = newTheme;
+            
+            // Send to server
+            fetch('/api/preferences', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(userPreferences)
+            }).catch(error => {
+                console.error('Error updating theme preference:', error);
+            });
+        }
     });
+    
+    // Add listener for system theme changes if user preference is set to 'system'
+    if (typeof userPreferences !== 'undefined' && userPreferences.theme === 'system') {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            const newTheme = e.matches ? 'dark' : 'light';
+            setTheme(newTheme);
+            updateThemeIcon(newTheme);
+        });
+    }
 }
 
 // Set the theme on the document
@@ -2593,8 +2632,10 @@ async function loadPreferences() {
         // Hide loading, show error message
         const preferencesLoading = document.getElementById('preferences-loading');
         preferencesLoading.innerHTML = `
-            <p class="error-message">Error loading preferences. Please try again.</p>
-            <button class="retry-button" onclick="loadPreferences()">Retry</button>
+            <div class="error-state">
+                <p>Error loading preferences. Please try again.</p>
+                <button class="retry-button" onclick="loadPreferences()">Retry</button>
+            </div>
         `;
     }
 }
@@ -2852,8 +2893,8 @@ async function populateModelDropdowns() {
         if (modelsData.status === 'success' && modelsData.models) {
             modelsData.models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model.name;
-                option.textContent = model.name;
+                option.value = model;
+                option.textContent = model;
                 baseModelSelect.appendChild(option);
             });
         }
@@ -2862,8 +2903,8 @@ async function populateModelDropdowns() {
         if (embeddingData.status === 'success' && embeddingData.models) {
             embeddingData.models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model.name;
-                option.textContent = model.name;
+                option.value = model;
+                option.textContent = model;
                 embeddingModelSelect.appendChild(option);
             });
         }
@@ -3773,8 +3814,17 @@ function showLandingPage() {
         }
     });
     
+    // Initially set opacity to 0 for fade-in effect
+    landingPage.style.opacity = '0';
+    landingPage.style.transition = 'opacity 0.5s ease-in-out';
+    
     // Show the landing page
     landingPage.style.display = 'flex';
+    
+    // Trigger fade-in effect after a small delay to ensure display is applied first
+    setTimeout(() => {
+        landingPage.style.opacity = '1';
+    }, 50);
     
     // Populate prompt suggestions
     const suggestionsContainer = landingPage.querySelector('.prompt-suggestions');
@@ -3876,12 +3926,18 @@ function showLandingPage() {
         
         // Initialize carousel navigation
         initCarouselNavigation();
+        
+        // Trigger fade-in animation after a short delay
+        setTimeout(() => {
+            landingPage.classList.add('visible');
+        }, 100);
     }
 }
 
 // Function to initialize carousel navigation
 function initCarouselNavigation() {
-    const container = document.querySelector('.prompt-suggestions');
+    const landingPage = document.getElementById('landing-page');
+    const container = landingPage.querySelector('.prompt-suggestions');
     const prevBtn = document.querySelector('.carousel-button.prev');
     const nextBtn = document.querySelector('.carousel-button.next');
     
@@ -3996,24 +4052,31 @@ const promptSuggestions = [
 ];
 
 // Function to use a prompt suggestion
-function usePromptSuggestion(prompt, model) {
-    // Set the model if specified
-    if (model && Array.from(modelSelect.options).some(option => option.value === model)) {
-        modelSelect.value = model;
-        currentModel = model;
-    }
+function usePromptSuggestion(prompt, modelId) {
+    // Hide the landing page with animation
+    hideLandingPage();
     
     // Set the prompt in the message input
     messageInput.value = prompt;
     
-    // Hide the landing page
-    const landingPage = document.getElementById('landing-page');
-    if (landingPage) {
-        landingPage.style.display = 'none';
+    // If a specific model is required, select it
+    if (modelId) {
+        // Find the option with this model ID
+        const option = Array.from(modelSelect.options).find(opt => opt.value === modelId);
+        if (option) {
+            modelSelect.value = modelId;
+            // Trigger change event to update any dependent UI
+            modelSelect.dispatchEvent(new Event('change'));
+        } else {
+            console.warn(`Model ${modelId} not found in available models`);
+        }
     }
     
     // Focus on the message input
     messageInput.focus();
+    
+    // Adjust the textarea height
+    adjustTextareaHeight();
 }
 
 // Function to initialize carousel navigation
@@ -4078,4 +4141,12 @@ function initCarouselNavigation() {
             nextBtn.click();
         }
     });
+}
+
+function hideLandingPage() {
+    const landingPage = document.getElementById('landing-page');
+    if (landingPage) {
+        landingPage.style.display = 'none';
+        landingPage.classList.remove('visible');
+    }
 }

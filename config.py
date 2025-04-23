@@ -101,7 +101,7 @@ def load_user_preferences():
         'default_model': None,
         'default_embedding_model': 'nomic-embed-text',
         'visible_models': [],  # Empty means show all
-        'theme': 'light',
+        'theme': 'system',
         'show_thinking': False  # Default to collapsed thinking process
     }
 
