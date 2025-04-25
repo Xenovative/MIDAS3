@@ -687,18 +687,17 @@ def list_embedding_models():
     try:
         app.logger.info("Attempting to get available embedding models...")
         
-        # List of supported embedding models
-        embedding_models = [
-            {"name": "nomic-embed-text"},
-            {"name": "all-MiniLM-L6-v2"},
-            {"name": "e5-large-v2"}
-        ]
+        # Get embedding models from config
+        embedding_models = []
+        for model_name in config.AVAILABLE_EMBEDDING_MODELS:
+            embedding_models.append({"name": model_name})
+        
+        app.logger.info(f"Available embedding models: {embedding_models}")
         
         return jsonify({
             'models': embedding_models,
             'status': 'success'
         })
-            
     except Exception as e:
         app.logger.error(f"Server error listing embedding models: {str(e)}")
         return jsonify({

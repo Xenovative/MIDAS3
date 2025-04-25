@@ -2893,8 +2893,12 @@ async function populateModelDropdowns() {
         if (modelsData.status === 'success' && modelsData.models) {
             modelsData.models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
+                // Handle both string and object formats
+                const modelValue = typeof model === 'object' ? model.name || model.id : model;
+                const modelText = typeof model === 'object' ? model.name || model.id : model;
+                
+                option.value = modelValue;
+                option.textContent = modelText;
                 baseModelSelect.appendChild(option);
             });
         }
@@ -2903,8 +2907,12 @@ async function populateModelDropdowns() {
         if (embeddingData.status === 'success' && embeddingData.models) {
             embeddingData.models.forEach(model => {
                 const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
+                // Handle both string and object formats
+                const modelValue = typeof model === 'object' ? model.name || model.id : model;
+                const modelText = typeof model === 'object' ? model.name || model.id : model;
+                
+                option.value = modelValue;
+                option.textContent = modelText;
                 embeddingModelSelect.appendChild(option);
             });
         }
