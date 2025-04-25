@@ -1078,9 +1078,8 @@
 
         .message-actions {
             position: absolute;
-            bottom: 5px; /* Position near the bottom */
+            bottom: -30px; /* Position below the message bubble */
             right: 8px;  /* Position near the right */
-            /* transform: translateY(-50%); Remove vertical centering */
             display: flex;
             gap: 4px;
             background-color: var(--bg-secondary); /* Use theme background */
@@ -1089,14 +1088,14 @@
             box-shadow: 0 1px 3px var(--shadow-color);
             opacity: 0; /* Hidden by default */
             transition: opacity 0.2s ease-in-out;
-            z-index: 1; /* Ensure buttons are above message content */
+            z-index: 5; /* Ensure buttons are above message content */
         }
 
-        /* Comment for user message actions */
-        /* .user-message .message-actions {
-            left: -10px; 
-            right: auto;
-        } */
+        /* Show message actions on hover */
+        .user-message:hover .message-actions,
+        .assistant-message:hover .message-actions {
+            opacity: 1; /* Show on hover */
+        }
 
         .message-actions button {
             background: none;
