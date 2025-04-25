@@ -17,10 +17,12 @@ def init_db():
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS conversations (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
         title TEXT NOT NULL,
         model TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
     )
     ''')
     
@@ -59,24 +61,32 @@ def init_db():
         FOREIGN KEY (conversation_id) REFERENCES conversations (id) ON DELETE CASCADE
     )
     ''')
+
+    # Create users table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'user',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
     
     conn.commit()
     conn.close()
 
-def create_conversation(title, model):
-    """Create a new conversation and return its ID"""
+def create_conversation(user_id, title, model):
+    """Create a new conversation for a user and return its ID"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    
     cursor.execute(
-        "INSERT INTO conversations (title, model) VALUES (?, ?)",
-        (title, model)
+        "INSERT INTO conversations (user_id, title, model) VALUES (?, ?, ?)",
+        (user_id, title, model)
     )
-    
     conversation_id = cursor.lastrowid
     conn.commit()
     conn.close()
-    
     return conversation_id
 
 def get_conversation(conversation_id):
@@ -128,6 +138,46 @@ def get_all_conversations():
     conn.close()
     
     return conversations
+
+def get_user_conversations(user_id):
+    """Get all conversations for a specific user with their latest message"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT c.*, 
+               (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) as message_count,
+               (SELECT content FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1) as last_message
+        FROM conversations c
+        WHERE c.user_id = ?
+        ORDER BY updated_at DESC
+    """, (user_id,))
+    conversations = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return conversations
+
+def get_user_conversation(user_id, conversation_id):
+    """Get a conversation by ID only if it belongs to the user"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM conversations WHERE id = ? AND user_id = ?",
+        (conversation_id, user_id)
+    )
+    conversation = cursor.fetchone()
+    if not conversation:
+        conn.close()
+        return None
+    cursor.execute(
+        "SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at",
+        (conversation_id,)
+    )
+    messages = cursor.fetchall()
+    result = dict(conversation)
+    result['messages'] = [dict(message) for message in messages]
+    conn.close()
+    return result
 
 def add_message(conversation_id, role, content, thinking=None, images=None, attachment_filename=None):
     """Add a message to a conversation, optionally including images."""
@@ -313,6 +363,45 @@ def delete_conversation_document(document_id):
         return False
     finally:
         conn.close()
+
+# --- User Management Functions ---
+
+def create_user(username, password_hash, role='user'):
+    """Create a new user with a hashed password and role."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            INSERT INTO users (username, password_hash, role)
+            VALUES (?, ?, ?)
+        ''', (username, password_hash, role))
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.IntegrityError as e:
+        print(f"Integrity error creating user: {e}")
+        return None
+    finally:
+        conn.close()
+
+def get_user_by_username(username):
+    """Retrieve a user by username."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE username = ?', (username,))
+    user = cursor.fetchone()
+    conn.close()
+    return dict(user) if user else None
+
+def get_user_by_id(user_id):
+    """Retrieve a user by id."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
+    user = cursor.fetchone()
+    conn.close()
+    return dict(user) if user else None
 
 # Initialize the database when the module is imported
 init_db()

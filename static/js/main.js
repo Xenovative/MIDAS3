@@ -120,6 +120,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     // Initialize sidebar toggle functionality
     initSidebarToggle();
+
 });
 
 // Initialize the application
@@ -4158,3 +4159,5 @@ function hideLandingPage() {
         landingPage.classList.remove('visible');
     }
 }
+
+

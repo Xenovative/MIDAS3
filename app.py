@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, Response
+from flask import Flask, request, jsonify, render_template, Response, abort
 import ollama
 import config # Added import
 from config import DEFAULT_MODEL, MODEL_OPTIONS, API_TIMEOUT, THINKING_MODELS, AVAILABLE_MODELS, OLLAMA_HOST, AVAILABLE_EMBEDDING_MODELS, VISIBLE_MODELS, USER_PREFERENCES
@@ -18,10 +18,13 @@ import math
 import random
 import uuid
 import time
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
+from passlib.hash import bcrypt
 
 app = Flask(__name__, 
            template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
            static_folder=os.path.join(os.path.dirname(__file__), 'static'))
+app.secret_key = 'CHANGE_THIS_TO_A_RANDOM_SECRET_KEY'
 
 # Configure logging
 if not os.path.exists('logs'):
@@ -31,6 +34,98 @@ log_handler = RotatingFileHandler('app.log', maxBytes=10000, backupCount=1)
 log_handler.setLevel(logging.INFO)
 app.logger.addHandler(log_handler)
 app.logger.setLevel(logging.INFO)
+
+# --- Flask-Login Setup ---
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+# --- User Class for Flask-Login ---
+class User(UserMixin):
+    def __init__(self, user_dict):
+        self.id = user_dict['id']
+        self.username = user_dict['username']
+        self.password_hash = user_dict['password_hash']
+        self.role = user_dict['role']
+        self.created_at = user_dict['created_at']
+
+    def get_id(self):
+        return str(self.id)
+
+@login_manager.user_loader
+def load_user(user_id):
+    user_dict = db.get_user_by_id(user_id)
+    if user_dict:
+        return User(user_dict)
+    return None
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    # Return JSON for API requests, HTML for browser navigation
+    if request.accept_mimetypes.accept_json or request.path.startswith('/api/'):
+        return jsonify({'status': 'error', 'message': 'Authentication required'}), 401
+    else:
+        return render_template('login.html'), 401
+
+# --- Admin Required Decorator ---
+def admin_required(f):
+    from functools import wraps
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not current_user.is_authenticated or getattr(current_user, 'role', None) != 'admin':
+            abort(403)
+        return f(*args, **kwargs)
+    return decorated_function
+
+# --- Registration Route ---
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        data = request.form if request.form else request.json
+        username = data.get('username')
+        password = data.get('password')
+        # Check if this is the first user
+        is_first_user = db.get_user_by_id(1) is None
+        role = 'admin' if is_first_user else 'user'
+        if not username or not password:
+            return jsonify({'status': 'error', 'message': 'Username and password required'}), 400
+        if db.get_user_by_username(username):
+            return jsonify({'status': 'error', 'message': 'Username already exists'}), 400
+        password_hash = bcrypt.hash(password)
+        user_id = db.create_user(username, password_hash, role)
+        if user_id:
+            user_dict = db.get_user_by_id(user_id)
+            user = User(user_dict)
+            login_user(user)
+            return jsonify({'status': 'success', 'user': {'username': user.username, 'role': user.role}})
+        else:
+            return jsonify({'status': 'error', 'message': 'Registration failed'}), 500
+    # For GET, return a simple registration form (for testing)
+    return '''<form method="post"><input name="username" placeholder="Username"><input name="password" type="password" placeholder="Password"><button type="submit">Register</button></form>'''
+
+# --- Login Route ---
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        data = request.form if request.form else request.json
+        username = data.get('username')
+        password = data.get('password')
+        user_dict = db.get_user_by_username(username)
+        if user_dict and bcrypt.verify(password, user_dict['password_hash']):
+            user = User(user_dict)
+            login_user(user)
+            return jsonify({'status': 'success', 'user': {'username': user.username, 'role': user.role}})
+        else:
+            return jsonify({'status': 'error', 'message': 'Invalid credentials'}), 401
+    # For GET, return a simple login form (for testing)
+    return '''<form method="post"><input name="username" placeholder="Username"><input name="password" type="password" placeholder="Password"><button type="submit">Login</button></form>'''
+
+# --- Logout Route ---
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return jsonify({'status': 'success', 'message': 'Logged out'})
 
 @app.route('/')
 def index():
@@ -74,10 +169,11 @@ def list_models():
         }), 500
 
 @app.route('/api/conversations', methods=['GET'])
+@login_required
 def list_conversations():
-    """List all conversations"""
+    """List all conversations for the current user"""
     try:
-        conversations = db.get_all_conversations()
+        conversations = db.get_user_conversations(current_user.id)
         return jsonify({
             'conversations': conversations,
             'status': 'success'
@@ -91,20 +187,18 @@ def list_conversations():
         }), 500
 
 @app.route('/api/conversations', methods=['POST'])
+@login_required
 def create_conversation():
-    """Create a new conversation"""
+    """Create a new conversation for the current user"""
     try:
         data = request.get_json()
         title = data.get('title', f"New Chat {time.strftime('%Y-%m-%d %H:%M')}")
         model = data.get('model', DEFAULT_MODEL)
         secret = data.get('secret', False)
-        
         if secret:
-            # Do not save to DB, just return a fake ID
             conversation_id = f"secret-{uuid.uuid4()}"
         else:
-            conversation_id = db.create_conversation(title, model)
-        
+            conversation_id = db.create_conversation(current_user.id, title, model)
         return jsonify({
             'conversation_id': conversation_id,
             'title': title,
@@ -121,41 +215,26 @@ def create_conversation():
         }), 500
 
 @app.route('/api/conversations/<int:conversation_id>', methods=['GET'])
+@login_required
 def get_conversation(conversation_id):
-    """Get a conversation by ID with all its messages"""
+    """Get a conversation by ID with all its messages (only if owned by user)"""
     try:
-        conversation = db.get_conversation(conversation_id)
-        
+        conversation = db.get_user_conversation(current_user.id, conversation_id)
         if not conversation:
             return jsonify({'status': 'error', 'message': 'Conversation not found'}), 404
-        
-        # db.get_conversation already includes the messages list
-        # No need to fetch messages separately here
-        
-        # The 'conversation' dict now contains a 'messages' list
-        # We need to ensure the frontend expects this structure
-        # The frontend currently expects 'conversation' and 'messages' as separate top-level keys.
-        # Let's adjust the response to match the frontend expectation for now.
-        
-        messages_list = conversation.pop('messages', []) # Extract messages and remove from conversation dict
-        
-        # Debug: Log image data in messages
-        for msg in messages_list:
-            if msg.get('images'):
-                print(f"Message {msg['id']} has images: {type(msg['images'])}, length: {len(msg['images']) if isinstance(msg['images'], list) else 'not list'}")
-                if isinstance(msg['images'], list) and len(msg['images']) > 0:
-                    print(f"First image data type: {type(msg['images'][0])}, length: {len(str(msg['images'][0])) if msg['images'][0] else 'None'}")
-
+        messages_list = conversation['messages']
+        del conversation['messages']
         return jsonify({
             'status': 'success',
-            'conversation': conversation, # Conversation details without messages
-            'messages': messages_list      # Messages as a separate list
+            'conversation': conversation,
+            'messages': messages_list
         })
     except Exception as e:
         app.logger.error(f"Error getting conversation: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/conversations/<int:conversation_id>', methods=['PUT'])
+@login_required
 def update_conversation(conversation_id):
     """Update a conversation's title"""
     try:
@@ -303,6 +382,7 @@ def update_conversation(conversation_id):
         }), 500
 
 @app.route('/api/messages/<int:message_id>', methods=['DELETE'])
+@login_required
 def delete_message_route(message_id):
     """Delete a specific message"""
     try:
@@ -330,6 +410,7 @@ def delete_message_route(message_id):
         }), 500
 
 @app.route('/api/conversations/<int:conversation_id>', methods=['DELETE'])
+@login_required
 def delete_conversation(conversation_id):
     """Delete a conversation"""
     try:
@@ -354,6 +435,7 @@ def delete_conversation(conversation_id):
         }), 500
 
 @app.route('/api/conversations/<int:conversation_id>/messages', methods=['POST'])
+@login_required
 def add_message(conversation_id):
     """Add a message to a conversation"""
     try:
@@ -390,6 +472,7 @@ def add_message(conversation_id):
         }), 500
 
 @app.route('/api/generate', methods=['POST'])
+@login_required
 def generate():
     """Generate a response to a user's message"""
     try:
@@ -424,7 +507,7 @@ def generate():
             # Continue processing, but log the error
 
         # --- RAG Integration ---
-        # Only use RAG if documents have been uploaded for this conversation
+        # Only use RAG if documents have been uploaded for this conversation (skip for secret)
         use_rag = False
         retrieved_context = ""
         
@@ -629,11 +712,12 @@ Answer:"""
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/conversations/<id>/generate-title', methods=['POST'])
+@login_required
 def generate_conversation_title(id):
     """Generate a title for the conversation based on its first message"""
     try:
         # Get the conversation
-        conversation = db.get_conversation(id)
+        conversation = db.get_user_conversation(current_user.id, id)
         if not conversation:
             app.logger.warning(f"Conversation {id} not found")
             return jsonify({
@@ -668,7 +752,7 @@ def generate_conversation_title(id):
         db.update_conversation_title(id, title)
         
         # Return the updated conversation data
-        updated_conversation = db.get_conversation(id)
+        updated_conversation = db.get_user_conversation(current_user.id, id)
         return jsonify({
             'status': 'success',
             'title': title,
@@ -706,6 +790,7 @@ def list_embedding_models():
         }), 500
 
 @app.route('/api/preferences', methods=['GET'])
+@login_required
 def get_preferences():
     """Get user preferences"""
     try:
@@ -733,6 +818,7 @@ def get_preferences():
         }), 500
 
 @app.route('/api/preferences', methods=['PUT'])
+@login_required
 def update_preferences():
     """Update user preferences"""
     try:
@@ -794,6 +880,17 @@ def update_preferences():
             'details': str(e)
         }), 500
 
+@app.route('/me')
+def me():
+    if current_user.is_authenticated:
+        return jsonify({
+            'logged_in': True,
+            'username': current_user.username,
+            'role': current_user.role
+        })
+    else:
+        return jsonify({'logged_in': False})
+
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'docs')
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md'}
 
@@ -804,6 +901,7 @@ def allowed_file(filename):
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 @app.route('/api/upload-doc', methods=['POST'])
+@login_required
 def upload_document():
     """Handles file uploads for the RAG system."""
     if 'document' not in request.files:
@@ -819,7 +917,7 @@ def upload_document():
         return jsonify({'status': 'error', 'message': 'No conversation ID provided'}), 400
     
     # Validate conversation_id exists
-    conversation = db.get_conversation(conversation_id)
+    conversation = db.get_user_conversation(current_user.id, conversation_id)
     if not conversation:
         return jsonify({'status': 'error', 'message': 'Conversation not found'}), 404
 
@@ -868,6 +966,7 @@ def upload_document():
         return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
 
 @app.route('/api/chat', methods=['POST'])
+@login_required
 def chat():
     """Legacy chat endpoint"""
     return generate()
@@ -889,6 +988,7 @@ def list_workflows():
     return jsonify({'status': 'success', 'workflows': workflows})
 
 @app.route('/api/generate_image', methods=['POST'])
+@login_required
 def generate_image():
     """Generate an image using ComfyUI based on a prompt or workflow"""
     import os
@@ -1129,6 +1229,7 @@ def generate_image():
 # ============================================================
 
 @app.route('/api/bots', methods=['GET'])
+@login_required
 def list_bots():
     """List all bots"""
     try:
@@ -1144,6 +1245,7 @@ def list_bots():
         }), 500
 
 @app.route('/api/bots', methods=['POST'])
+@login_required
 def create_bot():
     """Create a new bot"""
     try:
@@ -1178,6 +1280,7 @@ def create_bot():
         }), 500
 
 @app.route('/api/bots/<bot_id>', methods=['GET'])
+@login_required
 def get_bot(bot_id):
     """Get a bot by ID"""
     try:
@@ -1199,6 +1302,7 @@ def get_bot(bot_id):
         }), 500
 
 @app.route('/api/bots/<bot_id>', methods=['PUT'])
+@login_required
 def update_bot(bot_id):
     """Update a bot"""
     try:
@@ -1234,6 +1338,7 @@ def update_bot(bot_id):
         }), 500
 
 @app.route('/api/bots/<bot_id>', methods=['DELETE'])
+@login_required
 def delete_bot(bot_id):
     """Delete a bot"""
     try:
@@ -1255,6 +1360,7 @@ def delete_bot(bot_id):
         }), 500
 
 @app.route('/api/bots/<bot_id>/knowledge', methods=['POST'])
+@login_required
 def upload_knowledge_files(bot_id):
     """Upload knowledge files for a bot"""
     try:
@@ -1300,6 +1406,7 @@ def upload_knowledge_files(bot_id):
         }), 500
 
 @app.route('/api/bots/<bot_id>/knowledge/<filename>', methods=['DELETE'])
+@login_required
 def delete_knowledge_file(bot_id, filename):
     """Delete a knowledge file from a bot"""
     try:
@@ -1341,6 +1448,7 @@ def delete_knowledge_file(bot_id, filename):
         }), 500
 
 @app.route('/api/bots/<bot_id>/chat', methods=['POST'])
+@login_required
 def chat_with_bot(bot_id):
     """Chat with a bot"""
     try:
