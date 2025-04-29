@@ -1967,7 +1967,7 @@
         }
         #logout-btn { 
             background: var(--bg-accent, #555); 
-            color: #fff; 
+            color: #1a1a1a; 
             border: none; 
             border-radius: 6px; 
             padding: 0.4em 0.9em; 
@@ -2134,6 +2134,209 @@
             min-height: 1.2rem;
             text-align: center;
         }
+        
+        /* Remember Me Checkbox Styling */
+        .remember-me-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            padding-left: 0.5rem;
+            white-space: nowrap;
+        }
+        
+        .styled-checkbox {
+            width: 16px;
+            height: 16px;
+            margin-right: 0.5rem;
+            cursor: pointer;
+            accent-color: var(--bg-accent);
+            vertical-align: middle;
+        }
+        
+        .remember-me-container label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: normal;
+        }
+        
+        .remember-me-container input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        
+        /* User Profile Update Status */
+        .update-status {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .update-status.success {
+            background-color: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        .update-status.error {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+        
+        .preference-input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        
+        .preference-input:focus {
+            border-color: var(--bg-accent);
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.2);
+        }
+        
+        /* User Management Styles */
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            background-color: var(--bg-secondary);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .user-table th, .user-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .user-table th {
+            background-color: var(--bg-tertiary);
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .user-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        .user-table tr:hover {
+            background-color: var(--bg-tertiary);
+        }
+        
+        .user-role-select {
+            padding: 0.5rem;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .user-action-button {
+            padding: 0.4rem 0.6rem;
+            border-radius: 4px;
+            border: none;
+            background-color: var(--bg-accent);
+            color: var(--text-on-accent);
+            cursor: pointer;
+            margin-right: 0.5rem;
+            font-size: 0.8rem;
+        }
+        
+        .user-action-button:hover {
+            background-color: var(--button-hover);
+        }
+        
+        .user-action-button.delete {
+            background-color: #ef4444;
+        }
+        
+        .user-action-button.delete:hover {
+            background-color: #dc2626;
+        }
+        
+        .centered-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        
+        .centered-loading img {
+            width: 60px;
+            height: auto;
+            animation: float 2s ease-in-out infinite;
+        }
+        
+        .centered-loading p {
+            margin-top: 1rem;
+            color: var(--text-secondary);
+        }
+        
+        .error-message {
+            color: #e53e3e;
+            padding: 0.75rem;
+            border-radius: 6px;
+            background-color: rgba(239, 68, 68, 0.1);
+            margin-top: 1rem;
+            text-align: center;
+        }
+        
+        /* Inline password form styles */
+        .inline-password-form {
+            padding: 1rem;
+            margin: 0.5rem 0;
+            background-color: var(--bg-secondary);
+            border-radius: 4px;
+            border-left: 3px solid var(--bg-accent);
+            animation: fadeIn 0.3s ease;
+        }
+        
+        .form-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .form-row input {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+        
+        .pwd-status {
+            font-size: 0.85rem;
+            padding: 0.25rem 0;
+        }
+        
+        .pwd-status.success {
+            color: #4caf50;
+        }
+        
+        .pwd-status.error {
+            color: #d32f2f;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
@@ -2185,7 +2388,7 @@
                         <i class="fas fa-user-secret"></i>
                         <span>Secret Chat</span>
                     </button>
-                    <button id="manage-bots-button" class="sidebar-button">
+                    <button id="manage-bots-button" class="sidebar-button admin-only">
                         <i class="fas fa-robot"></i>
                         <span>Manage Bots</span>
                     </button>
@@ -2269,6 +2472,8 @@
                 <div class="preferences-tabs">
                     <button class="tab-button active" data-tab="models">Models</button>
                     <button class="tab-button" data-tab="appearance">Appearance</button>
+                    <button class="tab-button" data-tab="user">User</button>
+                    <button class="tab-button admin-only" data-tab="admin">Admin</button>
                 </div>
                 
                 <!-- Loading animation for preferences -->
@@ -2324,12 +2529,63 @@
                     <div class="preference-group">
                         <label>Thinking Process</label>
                         <div class="checkbox-option">
-                            <label>
+                            <label for="show-thinking" style="display: flex; align-items: center; gap: 0.5rem; margin: 0; cursor: pointer;">
                                 <input type="checkbox" id="show-thinking" name="show-thinking">
                                 Show thinking process by default
                             </label>
                             <p class="preference-description">When enabled, the model's thinking process will be automatically expanded in responses</p>
                         </div>
+                    </div>
+                </div>
+                <div class="tab-content" id="user-tab" style="display: none;">
+                    <div class="preference-group">
+                        <label for="display-name">Display Name</label>
+                        <input type="text" id="display-name" class="preference-input" placeholder="Your display name">
+                        <p class="preference-description">This name will be shown in the user interface</p>
+                    </div>
+                    
+                    <div class="preference-group">
+                        <label for="current-password">Current Password</label>
+                        <input type="password" id="current-password" class="preference-input" placeholder="Enter current password">
+                    </div>
+                    
+                    <div class="preference-group">
+                        <label for="new-password">New Password</label>
+                        <input type="password" id="new-password" class="preference-input" placeholder="Enter new password">
+                    </div>
+                    
+                    <div class="preference-group">
+                        <label for="confirm-password">Confirm New Password</label>
+                        <input type="password" id="confirm-password" class="preference-input" placeholder="Confirm new password">
+                    </div>
+                    
+                    <div id="password-update-status" class="update-status"></div>
+                </div>
+                <div class="tab-content" id="admin-tab" style="display: none;">
+                    <div class="preference-group">
+                        <h4>User Management</h4>
+                        <div id="user-management-loading" class="centered-loading">
+                            <img src="/static/assets/xeno.png" alt="Loading" class="loading-spinner">
+                            <p>Loading users...</p>
+                        </div>
+                        
+                        <div id="user-list-container" style="display: none;">
+                            <table class="user-table">
+                                <thead>
+                                    <tr>
+                                        <th>Username</th>
+                                        <th>Display Name</th>
+                                        <th>Role</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="user-list">
+                                    <!-- User rows will be added here dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div id="user-management-error" class="error-message" style="display: none;"></div>
                     </div>
                 </div>
                 <div class="modal-actions">
@@ -2508,6 +2764,12 @@
                         <i class="fas fa-lock input-icon"></i>
                         <input type="password" id="login-password" placeholder="Password" required>
                     </div>
+                    <div class="remember-me-container">
+                        <label for="remember-me" style="display: flex; align-items: center; gap: 0.5rem; margin: 0; cursor: pointer;">
+                            <input type="checkbox" id="remember-me" class="styled-checkbox">
+                            Remember Me
+                        </label>
+                    </div>
                     <button type="submit" class="auth-submit-btn">Login</button>
                     <div class="auth-error" id="login-error"></div>
                 </form>
@@ -2527,7 +2789,7 @@
         </div>
         <div id="user-menu" class="user-menu" style="display:none;">
             <span id="user-info"></span>
-            <button id="logout-btn">Logout</button>
+            <button id="logout-btn" style="font-size: 0.9em;"><i class="fas fa-sign-out-alt"></i> Logout</button>
         </div>
     </div>
 

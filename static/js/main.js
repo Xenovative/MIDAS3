@@ -131,10 +131,8 @@ async function init() {
     // Load conversations
     await loadConversations();
     
-    // Show landing page if no conversation is active
-    if (!currentConversationId) {
-        showLandingPage();
-    }
+    // Always show landing page when user logs in
+    showLandingPage();
     
     // Add event listeners
     addEventListeners();
@@ -4151,13 +4149,3 @@ function initCarouselNavigation() {
         }
     });
 }
-
-function hideLandingPage() {
-    const landingPage = document.getElementById('landing-page');
-    if (landingPage) {
-        landingPage.style.display = 'none';
-        landingPage.classList.remove('visible');
-    }
-}
-
-

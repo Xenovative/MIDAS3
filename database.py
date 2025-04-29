@@ -403,5 +403,100 @@ def get_user_by_id(user_id):
     conn.close()
     return dict(user) if user else None
 
+def update_user_display_name(user_id, display_name):
+    """Update a user's display name."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # First, check if display_name column exists
+    try:
+        cursor.execute("SELECT display_name FROM users LIMIT 1")
+    except sqlite3.OperationalError:
+        # Add display_name column if it doesn't exist
+        cursor.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
+    
+    try:
+        cursor.execute('''
+            UPDATE users 
+            SET display_name = ?
+            WHERE id = ?
+        ''', (display_name, user_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error updating user display name: {e}")
+        return False
+    finally:
+        conn.close()
+
+def update_user_password(user_id, password_hash):
+    """Update a user's password hash."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            UPDATE users 
+            SET password_hash = ?
+            WHERE id = ?
+        ''', (password_hash, user_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error updating user password: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_all_users():
+    """Get all users."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    try:
+        cursor.execute('SELECT id, username, display_name, role, created_at FROM users ORDER BY id')
+        users = [dict(row) for row in cursor.fetchall()]
+        return users
+    except Exception as e:
+        print(f"Error getting all users: {e}")
+        return []
+    finally:
+        conn.close()
+
+def update_user_role(user_id, role):
+    """Update a user's role."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            UPDATE users 
+            SET role = ?
+            WHERE id = ?
+        ''', (role, user_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error updating user role: {e}")
+        return False
+    finally:
+        conn.close()
+
+def delete_user(user_id):
+    """Delete a user."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        # First delete all user's conversations
+        cursor.execute('DELETE FROM conversations WHERE user_id = ?', (user_id,))
+        # Then delete the user
+        cursor.execute('DELETE FROM users WHERE id = ?', (user_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error deleting user: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
 # Initialize the database when the module is imported
 init_db()

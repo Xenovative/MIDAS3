@@ -48,6 +48,8 @@ class User(UserMixin):
         self.password_hash = user_dict['password_hash']
         self.role = user_dict['role']
         self.created_at = user_dict['created_at']
+        # Add display_name attribute
+        self.display_name = user_dict.get('display_name', self.username)
 
     def get_id(self):
         return str(self.id)
@@ -822,74 +824,225 @@ def get_preferences():
 def update_preferences():
     """Update user preferences"""
     try:
-        data = request.get_json()
+        data = request.json
+        user_id = current_user.id
         
-        if not data:
-            return jsonify({'status': 'error', 'message': 'No data provided'}), 400
+        # Get current preferences
+        prefs = USER_PREFERENCES.get(user_id, {})
         
-        # Create a copy of current preferences
-        new_preferences = USER_PREFERENCES.copy()
-        
-        # Update only the fields that are provided in the request
+        # Update with new values
         if 'default_model' in data:
-            new_preferences['default_model'] = data['default_model']
+            # Validate model
+            if data['default_model'] in AVAILABLE_MODELS:
+                prefs['default_model'] = data['default_model']
         
         if 'default_embedding_model' in data:
-            new_preferences['default_embedding_model'] = data['default_embedding_model']
+            # Validate embedding model
+            if data['default_embedding_model'] in AVAILABLE_EMBEDDING_MODELS:
+                prefs['default_embedding_model'] = data['default_embedding_model']
         
-        if 'visible_models' in data:
-            new_preferences['visible_models'] = data['visible_models']
+        if 'visible_models' in data and isinstance(data['visible_models'], list):
+            # Filter to only valid models
+            visible_models = [m for m in data['visible_models'] if m in AVAILABLE_MODELS]
+            prefs['visible_models'] = visible_models
         
         if 'theme' in data:
-            new_preferences['theme'] = data['theme']
+            if data['theme'] in ['light', 'dark', 'system']:
+                prefs['theme'] = data['theme']
         
-        # Save preferences to file
-        success = config.save_user_preferences(new_preferences)
+        if 'show_thinking' in data:
+            prefs['show_thinking'] = bool(data['show_thinking'])
         
-        if success:
-            # Update the global USER_PREFERENCES variable
-            for key, value in new_preferences.items():
-                USER_PREFERENCES[key] = value
-            
-            # Update other related global variables
-            config.DEFAULT_MODEL = USER_PREFERENCES.get('default_model') or (AVAILABLE_MODELS[0] if AVAILABLE_MODELS else 'llama2')
-            config.DEFAULT_EMBEDDING_MODEL = USER_PREFERENCES.get('default_embedding_model', 'nomic-embed-text')
-            config.VISIBLE_MODELS = USER_PREFERENCES.get('visible_models', []) or AVAILABLE_MODELS
-            
-            # Update imported globals in this module
-            global DEFAULT_MODEL, VISIBLE_MODELS
-            DEFAULT_MODEL = config.DEFAULT_MODEL
-            VISIBLE_MODELS = config.VISIBLE_MODELS
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'Preferences updated successfully',
-                'preferences': USER_PREFERENCES
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Failed to save preferences to file'
-            }), 500
-            
-    except Exception as e:
-        app.logger.error(f"Error updating preferences: {str(e)}")
+        # Only admins can update system-wide settings
+        if current_user.role == 'admin':
+            if 'system_settings' in data and isinstance(data['system_settings'], dict):
+                system_settings = data['system_settings']
+                
+                # Update system settings
+                if 'default_models' in system_settings:
+                    # TODO: Update system default models
+                    pass
+        
+        # Save preferences
+        USER_PREFERENCES[user_id] = prefs
+        
+        # Save to disk
+        try:
+            with open('data/user_preferences.json', 'w') as f:
+                json.dump(USER_PREFERENCES, f)
+        except Exception as e:
+            app.logger.error(f"Error saving preferences to disk: {e}")
+        
         return jsonify({
-            'message': 'Failed to update preferences',
+            'status': 'success',
+            'preferences': prefs
+        })
+    except Exception as e:
+        app.logger.error(f"Error updating preferences: {e}")
+        return jsonify({
             'status': 'error',
+            'message': 'Failed to update preferences',
             'details': str(e)
         }), 500
 
-@app.route('/me')
+@app.route('/me', methods=['GET'])
 def me():
     if current_user.is_authenticated:
         return jsonify({
             'logged_in': True,
             'username': current_user.username,
-            'role': current_user.role
+            'role': current_user.role,
+            'display_name': current_user.display_name
         })
     else:
         return jsonify({'logged_in': False})
+
+@app.route('/update_profile', methods=['POST'])
+@login_required
+def update_profile():
+    data = request.json
+    user_id = current_user.id
+    
+    # Update display name if provided
+    if 'display_name' in data:
+        display_name = data['display_name']
+        if display_name and display_name.strip():
+            success = db.update_user_display_name(user_id, display_name)
+            if not success:
+                return jsonify({'status': 'error', 'message': 'Failed to update display name'}), 500
+    
+    # Update password if provided
+    if 'current_password' in data and 'new_password' in data:
+        current_password = data['current_password']
+        new_password = data['new_password']
+        
+        # Verify current password
+        user_dict = db.get_user_by_id(user_id)
+        if not bcrypt.verify(current_password, user_dict['password_hash']):
+            return jsonify({'status': 'error', 'message': 'Current password is incorrect'}), 400
+        
+        # Update password
+        new_password_hash = bcrypt.hash(new_password)
+        success = db.update_user_password(user_id, new_password_hash)
+        if not success:
+            return jsonify({'status': 'error', 'message': 'Failed to update password'}), 500
+    
+    return jsonify({'status': 'success', 'message': 'Profile updated successfully'})
+
+# --- Admin User Management Routes ---
+@app.route('/api/users', methods=['GET'])
+@login_required
+@admin_required
+def list_users():
+    """List all users (admin only)"""
+    try:
+        users = db.get_all_users()
+        return jsonify({
+            'status': 'success',
+            'users': users
+        })
+    except Exception as e:
+        app.logger.error(f"Error listing users: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to retrieve users'
+        }), 500
+
+@app.route('/api/users/<int:user_id>', methods=['PUT'])
+@login_required
+@admin_required
+def update_user(user_id):
+    """Update a user's role (admin only)"""
+    try:
+        data = request.json
+        
+        # Don't allow changing your own role
+        if user_id == current_user.id:
+            return jsonify({
+                'status': 'error',
+                'message': 'You cannot change your own role'
+            }), 400
+        
+        # Update role if provided
+        if 'role' in data:
+            role = data['role']
+            if role not in ['admin', 'user']:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Invalid role'
+                }), 400
+                
+            success = db.update_user_role(user_id, role)
+            if not success:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Failed to update user role'
+                }), 500
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'User updated successfully'
+        })
+    except Exception as e:
+        app.logger.error(f"Error updating user: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to update user'
+        }), 500
+
+@app.route('/api/users/<int:user_id>', methods=['DELETE'])
+@login_required
+@admin_required
+def delete_user(user_id):
+    """Delete a user (admin only)"""
+    try:
+        # Don't allow deleting yourself
+        if user_id == current_user.id:
+            return jsonify({
+                'status': 'error',
+                'message': 'You cannot delete your own account'
+            }), 400
+            
+        success = db.delete_user(user_id)
+        if not success:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to delete user'
+            }), 500
+            
+        return jsonify({
+            'status': 'success',
+            'message': 'User deleted successfully'
+        })
+    except Exception as e:
+        app.logger.error(f"Error deleting user: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to delete user'
+        }), 500
+
+@app.route('/api/users/<int:user_id>/password', methods=['PUT'])
+@login_required
+@admin_required
+def admin_change_user_password(user_id):
+    """Allow admin to change another user's password."""
+    try:
+        data = request.json
+        new_password = data.get('new_password')
+        if not new_password or len(new_password) < 6:
+            return jsonify({'status': 'error', 'message': 'Password must be at least 6 characters'}), 400
+        # Don't allow changing your own password here (use profile update)
+        if user_id == current_user.id:
+            return jsonify({'status': 'error', 'message': 'You cannot change your own password here'}), 400
+        from passlib.hash import bcrypt
+        new_password_hash = bcrypt.hash(new_password)
+        success = db.update_user_password(user_id, new_password_hash)
+        if not success:
+            return jsonify({'status': 'error', 'message': 'Failed to update password'}), 500
+        return jsonify({'status': 'success', 'message': 'Password updated successfully'})
+    except Exception as e:
+        app.logger.error(f"Error changing user password: {e}")
+        return jsonify({'status': 'error', 'message': 'Failed to update password'}), 500
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'docs')
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md'}
@@ -1246,6 +1399,7 @@ def list_bots():
 
 @app.route('/api/bots', methods=['POST'])
 @login_required
+@admin_required
 def create_bot():
     """Create a new bot"""
     try:
@@ -1303,6 +1457,7 @@ def get_bot(bot_id):
 
 @app.route('/api/bots/<bot_id>', methods=['PUT'])
 @login_required
+@admin_required
 def update_bot(bot_id):
     """Update a bot"""
     try:
@@ -1339,6 +1494,7 @@ def update_bot(bot_id):
 
 @app.route('/api/bots/<bot_id>', methods=['DELETE'])
 @login_required
+@admin_required
 def delete_bot(bot_id):
     """Delete a bot"""
     try:
@@ -1361,6 +1517,7 @@ def delete_bot(bot_id):
 
 @app.route('/api/bots/<bot_id>/knowledge', methods=['POST'])
 @login_required
+@admin_required
 def upload_knowledge_files(bot_id):
     """Upload knowledge files for a bot"""
     try:
@@ -1407,6 +1564,7 @@ def upload_knowledge_files(bot_id):
 
 @app.route('/api/bots/<bot_id>/knowledge/<filename>', methods=['DELETE'])
 @login_required
+@admin_required
 def delete_knowledge_file(bot_id, filename):
     """Delete a knowledge file from a bot"""
     try:
