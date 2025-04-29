@@ -18,16 +18,27 @@ async function fetchAuthState() {
 }
 
 function updateAuthUI() {
-    const userMenu = document.getElementById('user-menu');
-    const userInfo = document.getElementById('user-info');
+    // We're now using the sidebar user section instead of the floating user menu
+    const sidebarUserInfo = document.getElementById('sidebar-user-info');
+    const sidebarUserSection = document.querySelector('.sidebar-user-section');
     
     if (authState.logged_in) {
-        if (userMenu) userMenu.style.display = 'flex';
-        if (userInfo) userInfo.textContent = `${authState.display_name || authState.username} (${authState.role})`;
+        // Update sidebar user info
+        if (sidebarUserInfo) {
+            sidebarUserInfo.textContent = `${authState.display_name || authState.username}${authState.role ? ` (${authState.role})` : ''}`;
+        }
+        if (sidebarUserSection) {
+            sidebarUserSection.style.display = 'block';
+        }
+        
         hideAuthModal();
         document.body.classList.remove('auth-locked');
     } else {
-        if (userMenu) userMenu.style.display = 'none';
+        // Hide sidebar user section when logged out
+        if (sidebarUserSection) {
+            sidebarUserSection.style.display = 'none';
+        }
+        
         showAuthModal();
         document.body.classList.add('auth-locked');
     }
@@ -83,6 +94,68 @@ function lockChatUIIfNeeded() {
         }
     }
 }
+
+// Function to update user info displays
+function updateUserInfo() {
+    const username = localStorage.getItem('username');
+    if (username) {
+        // Update user info in header
+        const userInfoElement = document.getElementById('user-info');
+        if (userInfoElement) {
+            userInfoElement.textContent = username;
+        }
+        
+        // Update user info in sidebar
+        const sidebarUserInfo = document.getElementById('sidebar-user-info');
+        if (sidebarUserInfo) {
+            sidebarUserInfo.textContent = username;
+        }
+    }
+}
+
+// Function to handle logout
+async function handleLogout() {
+    try {
+        // Call the server logout endpoint
+        await fetch('/logout', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            }
+        });
+    } catch (error) {
+        console.error('Error during logout:', error);
+    } finally {
+        // Clear local storage
+        localStorage.removeItem('token');
+        localStorage.removeItem('username');
+        localStorage.removeItem('userId');
+        
+        // Update auth state
+        authState = { logged_in: false, username: null, role: null };
+        
+        // Update UI
+        updateAuthUI();
+    }
+}
+
+// Add event listener for logout button in header
+const logoutButton = document.getElementById('logout-button');
+if (logoutButton) {
+    logoutButton.addEventListener('click', handleLogout);
+}
+
+// Add event listener for logout button in sidebar
+const sidebarLogoutBtn = document.getElementById('sidebar-logout-btn');
+if (sidebarLogoutBtn) {
+    sidebarLogoutBtn.addEventListener('click', handleLogout);
+}
+
+// Call updateUserInfo when the DOM is loaded and after login/register
+document.addEventListener('DOMContentLoaded', function() {
+    updateUserInfo();
+});
 
 // Initialize authentication
 document.addEventListener('DOMContentLoaded', function() {
@@ -510,10 +583,135 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     if (registerForm) {
+        // --- Registration input validation and password strength checker ---
+        const registerUsernameInput = document.getElementById('register-username');
+        const registerPasswordInput = document.getElementById('register-password');
+        const registerError = document.getElementById('register-error');
+        const passwordInfoIcon = document.getElementById('password-info-icon');
+        const passwordTooltip = document.getElementById('password-tooltip');
+        const strengthLabel = document.getElementById('strength-label');
+        const strengthRequirements = document.getElementById('strength-requirements');
+        
+        // Show/hide password requirements tooltip
+        if (passwordInfoIcon && passwordTooltip) {
+            passwordInfoIcon.addEventListener('mouseenter', function() {
+                passwordTooltip.style.display = 'block';
+            });
+            
+            passwordInfoIcon.addEventListener('mouseleave', function() {
+                passwordTooltip.style.display = 'none';
+            });
+            
+            // Also allow clicking to toggle
+            passwordInfoIcon.addEventListener('click', function() {
+                if (passwordTooltip.style.display === 'none') {
+                    passwordTooltip.style.display = 'block';
+                } else {
+                    passwordTooltip.style.display = 'none';
+                }
+            });
+        }
+        
+        function checkPasswordStrength(password) {
+            // Initialize criteria checks
+            const criteria = {
+                length: password.length >= 8,
+                uppercase: /[A-Z]/.test(password),
+                lowercase: /[a-z]/.test(password),
+                numbers: /[0-9]/.test(password),
+                special: /[^A-Za-z0-9]/.test(password)
+            };
+            
+            // Count how many criteria are met
+            const score = Object.values(criteria).filter(Boolean).length;
+            
+            return { score, criteria };
+        }
+        
+        function updatePasswordStrength(password) {
+            const fill = document.getElementById('password-strength-fill');
+            if (!fill) return;
+            
+            const { score, criteria } = checkPasswordStrength(password);
+            
+            // Update the strength bar
+            let strength = '', color = '';
+            switch (score) {
+                case 0:
+                case 1:
+                    strength = 'Very Weak'; color = '#e57373'; break;
+                case 2:
+                    strength = 'Weak'; color = '#ffb74d'; break;
+                case 3:
+                    strength = 'Moderate'; color = '#ffd54f'; break;
+                case 4:
+                    strength = 'Strong'; color = '#81c784'; break;
+                case 5:
+                    strength = 'Very Strong'; color = '#388e3c'; break;
+            }
+            
+            // Update UI elements
+            fill.style.width = (score * 20) + '%';
+            fill.style.backgroundColor = color;
+            
+            if (strengthLabel) {
+                strengthLabel.textContent = strength;
+                strengthLabel.style.color = color;
+            }
+            
+            // Show missing requirements
+            if (strengthRequirements) {
+                const missing = [];
+                if (!criteria.length) missing.push('8+ chars');
+                if (!criteria.uppercase) missing.push('uppercase');
+                if (!criteria.lowercase) missing.push('lowercase');
+                if (!criteria.numbers) missing.push('number');
+                if (!criteria.special) missing.push('symbol');
+                
+                if (missing.length > 0) {
+                    strengthRequirements.textContent = 'Missing: ' + missing.join(', ');
+                } else {
+                    strengthRequirements.textContent = 'All requirements met!';
+                    strengthRequirements.style.color = '#388e3c';
+                }
+            }
+            
+            return score;
+        }
+        
+        if (registerPasswordInput) {
+            registerPasswordInput.addEventListener('input', function() {
+                updatePasswordStrength(this.value);
+            });
+            
+            // Initialize with empty password
+            updatePasswordStrength('');
+        }
+        
         registerForm.addEventListener('submit', async function(e) {
             e.preventDefault();
-            const username = document.getElementById('register-username').value;
-            const password = document.getElementById('register-password').value;
+            const username = registerUsernameInput.value.trim();
+            const password = registerPasswordInput.value;
+            // --- Username validation ---
+            if (username.length < 3 || username.length > 32) {
+                registerError.textContent = 'Username must be between 3 and 32 characters.';
+                return;
+            }
+            if (!/^[A-Za-z0-9_]+$/.test(username)) {
+                registerError.textContent = 'Username can only contain letters, numbers, and underscores.';
+                return;
+            }
+            // --- Password validation ---
+            if (password.length < 8) {
+                registerError.textContent = 'Password must be at least 8 characters.';
+                return;
+            }
+            const { score } = checkPasswordStrength(password);
+            if (score < 3) {
+                registerError.textContent = 'Password is too weak. Use uppercase, lowercase, numbers, and symbols.';
+                return;
+            }
+            // --- Proceed with registration ---
             try {
                 const res = await fetch('/register', {
                     method: 'POST',
@@ -531,10 +729,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         window.showNotification('Registered successfully', 'success');
                     }
                 } else {
-                    document.getElementById('register-error').textContent = data.message || 'Registration failed';
+                    registerError.textContent = data.message || 'Registration failed';
                 }
             } catch (err) {
-                document.getElementById('register-error').textContent = 'Server error';
+                registerError.textContent = 'Server error';
             }
         });
     }
@@ -596,4 +794,85 @@ document.addEventListener('DOMContentLoaded', function() {
         if (usernameInput) usernameInput.value = rememberedUser;
         if (rememberMeCheckbox) rememberMeCheckbox.checked = true;
     }
+    
+    // User menu auto-hide functionality
+    const userMenu = document.getElementById('user-menu');
+    const userInfo = document.getElementById('user-info');
+    
+    if (userMenu && userInfo) {
+        // Function to check if menu is visible
+        function isMenuVisible() {
+            // Check computed style instead of just the inline style
+            const computedStyle = window.getComputedStyle(userMenu);
+            return computedStyle.display !== 'none';
+        }
+        
+        // Function to toggle menu visibility
+        function toggleUserMenu() {
+            if (isMenuVisible()) {
+                userMenu.style.display = 'none';
+            } else {
+                userMenu.style.display = 'flex';
+            }
+        }
+        
+        // Add click event listener to the document
+        document.addEventListener('click', function(e) {
+            // If the click is outside the user menu and the menu is visible
+            if (isMenuVisible() && 
+                !userMenu.contains(e.target) && 
+                !e.target.matches('#user-info, #user-info *')) {
+                userMenu.style.display = 'none';
+            }
+        });
+        
+        // Toggle menu when user info is clicked
+        userInfo.addEventListener('click', function(e) {
+            e.stopPropagation(); // Prevent document click from immediately closing
+            toggleUserMenu();
+        });
+        
+        // Auto-hide after clicking an option inside the menu
+        userMenu.addEventListener('click', function(e) {
+            // If the click is on a button or link inside the menu
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'A') {
+                // Small delay to allow the click to register before hiding
+                setTimeout(function() {
+                    userMenu.style.display = 'none';
+                }, 100);
+            }
+        });
+        
+        // For mobile: add touch events to improve responsiveness
+        if ('ontouchstart' in window) {
+            document.addEventListener('touchstart', function(e) {
+                if (isMenuVisible() && 
+                    !userMenu.contains(e.target) && 
+                    !e.target.matches('#user-info, #user-info *')) {
+                    userMenu.style.display = 'none';
+                }
+            });
+        }
+    }
 });
+
+// Function to handle login success
+function handleLoginSuccess(username, token, userId) {
+    localStorage.setItem('token', token);
+    localStorage.setItem('username', username);
+    localStorage.setItem('userId', userId);
+    
+    // Close the auth modal
+    closeAuthModal();
+    
+    // Update the UI to show the user is logged in
+    document.body.classList.add('logged-in');
+    
+    // Update user info displays
+    updateUserInfo();
+    
+    // Reload conversations if needed
+    if (typeof loadConversations === 'function') {
+        loadConversations();
+    }
+}

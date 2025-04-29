@@ -121,6 +121,77 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Initialize sidebar toggle functionality
     initSidebarToggle();
 
+    // Mobile responsiveness enhancements
+    setupMobileResponsiveness();
+    
+    // Mobile header functionality
+    setupMobileHeader();
+
+    // Enhanced: Keep mobile chat title and model in sync, and toggle logo visibility
+    function updateMobileChatHeader() {
+        const desktopTitle = document.getElementById('chat-title');
+        const desktopModel = document.getElementById('chat-model');
+        const mobileTitle = document.getElementById('mobile-chat-title');
+        const mobileModel = document.getElementById('mobile-chat-model');
+        const mobileLogo = document.querySelector('.mobile-logo');
+
+        // Determine if a chat is active (not landing page)
+        const isChatActive = desktopTitle && desktopTitle.textContent.trim() && desktopTitle.textContent.trim().toLowerCase() !== 'new chat';
+
+        if (mobileTitle) {
+            mobileTitle.textContent = desktopTitle ? desktopTitle.textContent : '';
+            mobileTitle.style.display = isChatActive ? 'block' : 'none';
+        }
+        if (mobileModel) {
+            mobileModel.textContent = desktopModel ? desktopModel.textContent : '';
+            // Always display the model subtitle under the chat title on mobile if chat is active
+            mobileModel.style.display = isChatActive ? 'block' : 'none';
+        }
+        if (mobileLogo) {
+            mobileLogo.style.display = isChatActive ? 'none' : 'flex';
+        }
+    }
+
+    // Observe changes to the chat title and model, and update mobile header
+    const chatTitleElem = document.getElementById('chat-title');
+    const chatModelElem = document.getElementById('chat-model');
+    const chatHeaderObserver = new MutationObserver(updateMobileChatHeader);
+    if (chatTitleElem) {
+        chatHeaderObserver.observe(chatTitleElem, { childList: true, subtree: true, characterData: true });
+    }
+    if (chatModelElem) {
+        chatHeaderObserver.observe(chatModelElem, { childList: true, subtree: true, characterData: true });
+    }
+
+    // Also update on DOMContentLoaded
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', updateMobileChatHeader);
+    } else {
+        updateMobileChatHeader();
+    }
+
+    // Keep mobile chat title in sync with main chat title
+    function updateMobileChatTitle() {
+        const desktopTitle = document.getElementById('chat-title');
+        const mobileTitle = document.getElementById('mobile-chat-title');
+        if (desktopTitle && mobileTitle) {
+            mobileTitle.textContent = desktopTitle.textContent;
+        }
+    }
+
+    // Observe changes to the chat title and update mobile title
+    const chatTitleObserver = new MutationObserver(updateMobileChatTitle);
+    if (chatTitleElem) {
+        chatTitleObserver.observe(chatTitleElem, { childList: true, subtree: true, characterData: true });
+        updateMobileChatTitle();
+    }
+
+    // Also update mobile chat title on DOMContentLoaded
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', updateMobileChatTitle);
+    } else {
+        updateMobileChatTitle();
+    }
 });
 
 // Initialize the application
@@ -3633,8 +3704,8 @@ function showImageOverlay(imgSrc, altText = '') {
     overlay.style.position = 'fixed';
     overlay.style.top = '0';
     overlay.style.left = '0';
-    overlay.style.width = '100vw';
-    overlay.style.height = '100vh';
+    overlay.style.right = '0';
+    overlay.style.bottom = '0';
     overlay.style.background = 'rgba(0,0,0,0.8)';
     overlay.style.display = 'flex';
     overlay.style.alignItems = 'center';
@@ -3807,7 +3878,271 @@ function toggleSecretChatMode() {
     updateSecretChatUI();
 }
 
-// Function to show the landing page
+// Utility function to hide the landing page
+function hideLandingPage() {
+    const landingPage = document.getElementById('landing-page');
+    if (landingPage) {
+        landingPage.style.display = 'none';
+    }
+}
+
+// Mobile responsiveness enhancements
+function setupMobileResponsiveness() {
+    const sidebar = document.querySelector('.sidebar');
+    const chatPanel = document.querySelector('.chat-panel');
+    const sidebarToggle = document.querySelector('.sidebar-toggle');
+    
+    // Function to check if we're on mobile
+    function isMobile() {
+        return window.innerWidth <= 768;
+    }
+    
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        if (isMobile()) {
+            // On mobile, always collapse sidebar initially
+            if (sidebar && !sidebar.classList.contains('sidebar-collapsed')) {
+                sidebar.classList.add('sidebar-collapsed');
+            }
+            if (chatPanel && !chatPanel.classList.contains('sidebar-collapsed')) {
+                chatPanel.classList.add('sidebar-collapsed');
+            }
+        }
+    });
+    
+    // Initial check on page load
+    if (isMobile()) {
+        if (sidebar) sidebar.classList.add('sidebar-collapsed');
+        if (chatPanel) chatPanel.classList.add('sidebar-collapsed');
+    }
+    
+    // Enhance sidebar toggle for mobile
+    if (sidebarToggle) {
+        const originalClickHandler = sidebarToggle.onclick;
+        sidebarToggle.onclick = function(e) {
+            if (originalClickHandler) {
+                originalClickHandler.call(this, e);
+            }
+            
+            // On mobile, when sidebar is opened, add an overlay to allow closing by tapping outside
+            if (isMobile() && sidebar && !sidebar.classList.contains('sidebar-collapsed')) {
+                const overlay = document.createElement('div');
+                overlay.className = 'mobile-sidebar-overlay';
+                overlay.style.position = 'fixed';
+                overlay.style.top = '0';
+                overlay.style.left = '0';
+                overlay.style.right = '0';
+                overlay.style.bottom = '0';
+                overlay.style.background = 'rgba(0,0,0,0.5)';
+                overlay.style.zIndex = '15';
+                document.body.appendChild(overlay);
+                
+                overlay.addEventListener('click', function() {
+                    sidebar.classList.add('sidebar-collapsed');
+                    chatPanel.classList.add('sidebar-collapsed');
+                    document.body.removeChild(overlay);
+                });
+            } else {
+                // Remove overlay when sidebar is closed
+                const overlay = document.querySelector('.mobile-sidebar-overlay');
+                if (overlay) {
+                    document.body.removeChild(overlay);
+                }
+            }
+        };
+    }
+    
+    // Enhance auth modal for mobile
+    const authModal = document.getElementById('auth-modal');
+    if (authModal) {
+        // Make sure auth modal is properly centered on mobile
+        function adjustAuthModal() {
+            if (isMobile()) {
+                const modalContent = authModal.querySelector('.modal-content');
+                if (modalContent) {
+                    modalContent.style.maxHeight = (window.innerHeight * 0.9) + 'px';
+                    modalContent.style.overflow = 'auto';
+                }
+            }
+        }
+        
+        window.addEventListener('resize', adjustAuthModal);
+        // Also adjust when modal is shown
+        const observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.attributeName === 'style' && 
+                    authModal.style.display !== 'none') {
+                    adjustAuthModal();
+                }
+            });
+        });
+        
+        observer.observe(authModal, { attributes: true });
+    }
+}
+
+// Mobile header functionality
+function setupMobileHeader() {
+    const mobileMessagesButton = document.getElementById('mobile-messages-button');
+    const messagesModal = document.getElementById('messages-modal');
+    const closeMessagesModal = document.getElementById('close-messages-modal');
+    const sidebar = document.querySelector('.sidebar');
+    const chatPanel = document.querySelector('.chat-panel');
+    
+    // Function to check if we're on mobile
+    function isMobile() {
+        return window.innerWidth <= 768;
+    }
+    
+    // Handle mobile messages button click
+    if (mobileMessagesButton) {
+        mobileMessagesButton.addEventListener('click', function() {
+            // Show messages modal
+            showMessagesModal();
+        });
+    }
+    
+    // Function to show messages modal
+    function showMessagesModal() {
+        if (!messagesModal) return;
+        
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'mobile-modal-overlay';
+        document.body.appendChild(overlay);
+        
+        // Show modal
+        messagesModal.style.display = 'block';
+        
+        // Populate messages list from conversation list
+        populateMessagesModal();
+        
+        // Close when clicking overlay
+        overlay.addEventListener('click', function(e) {
+            if (e.target === overlay) {
+                hideMessagesModal();
+            }
+        });
+    }
+    
+    // Function to hide messages modal
+    function hideMessagesModal() {
+        if (!messagesModal) return;
+        
+        // Hide modal
+        messagesModal.style.display = 'none';
+        
+        // Remove overlay
+        const overlay = document.querySelector('.mobile-modal-overlay');
+        if (overlay) {
+            document.body.removeChild(overlay);
+        }
+    }
+    
+    // Close button for messages modal
+    if (closeMessagesModal) {
+        closeMessagesModal.addEventListener('click', hideMessagesModal);
+    }
+    
+    // Function to populate messages modal with conversations
+    function populateMessagesModal() {
+        const messagesList = document.querySelector('.messages-list');
+        const conversationList = document.getElementById('conversation-list');
+        
+        if (!messagesList || !conversationList) return;
+        
+        // Clear existing items
+        messagesList.innerHTML = '';
+        
+        // Clone conversation items to messages list
+        const conversationItems = conversationList.querySelectorAll('.conversation-item');
+        conversationItems.forEach(item => {
+            const clone = item.cloneNode(true);
+            
+            // Add click handler to select conversation
+            clone.addEventListener('click', function() {
+                // Get conversation ID
+                const conversationId = clone.getAttribute('data-id');
+                if (conversationId) {
+                    // Load the conversation
+                    loadConversation(conversationId);
+                    
+                    // Hide the modal
+                    hideMessagesModal();
+                }
+            });
+            
+            messagesList.appendChild(clone);
+        });
+        
+        // If no conversations, show a message
+        if (conversationItems.length === 0) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'empty-state';
+            emptyState.style.padding = '2rem';
+            emptyState.style.textAlign = 'center';
+            emptyState.style.color = 'var(--text-secondary)';
+            emptyState.innerHTML = '<i class="fas fa-comments" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>No conversations yet</p>';
+            messagesList.appendChild(emptyState);
+        }
+    }
+    
+    // Search functionality for messages modal
+    const messagesSearchInput = document.getElementById('messages-search-input');
+    if (messagesSearchInput) {
+        messagesSearchInput.addEventListener('input', function() {
+            const searchTerm = this.value.toLowerCase();
+            const conversationItems = document.querySelectorAll('.messages-list .conversation-item');
+            
+            conversationItems.forEach(item => {
+                const title = item.querySelector('.conversation-title');
+                const titleText = title ? title.textContent.toLowerCase() : '';
+                
+                if (titleText.includes(searchTerm)) {
+                    item.style.display = '';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+        });
+    }
+    
+    // Adjust header based on screen size
+    function adjustHeaderForMobile() {
+        const chatInfo = document.querySelector('.chat-info');
+        const modelSelector = document.querySelector('.model-selector');
+        const mobileLogo = document.querySelector('.mobile-logo');
+        
+        if (isMobile()) {
+            // On mobile, always collapse sidebar initially
+            if (chatInfo) chatInfo.style.display = 'none';
+            if (modelSelector) modelSelector.style.display = 'none';
+            if (mobileLogo) mobileLogo.style.display = 'flex';
+            if (mobileMessagesButton) mobileMessagesButton.style.display = 'flex';
+        } else {
+            // Desktop view
+            if (chatInfo) chatInfo.style.display = 'flex';
+            if (modelSelector) modelSelector.style.display = 'flex';
+            if (mobileLogo) mobileLogo.style.display = 'none';
+            if (mobileMessagesButton) mobileMessagesButton.style.display = 'none';
+        }
+    }
+    
+    // Call on page load and window resize
+    adjustHeaderForMobile();
+    window.addEventListener('resize', adjustHeaderForMobile);
+}
+
+// Utility function to adjust the message input textarea height
+function adjustTextareaHeight() {
+    const textarea = document.getElementById('message-input');
+    if (textarea) {
+        textarea.style.height = 'auto';
+        textarea.style.height = (textarea.scrollHeight) + 'px';
+    }
+}
+
+// Show the landing page
 function showLandingPage() {
     const landingPage = document.getElementById('landing-page');
     const chatContainer = document.getElementById('chat-container');
@@ -4149,3 +4484,4 @@ function initCarouselNavigation() {
         }
     });
 }
+
