@@ -3994,6 +3994,25 @@ function setupMobileHeader() {
         return window.innerWidth <= 768;
     }
     
+    // Handle window resize
+    window.addEventListener('resize', function() {
+        if (isMobile()) {
+            // On mobile, always collapse sidebar initially
+            if (sidebar && !sidebar.classList.contains('sidebar-collapsed')) {
+                sidebar.classList.add('sidebar-collapsed');
+            }
+            if (chatPanel && !chatPanel.classList.contains('sidebar-collapsed')) {
+                chatPanel.classList.add('sidebar-collapsed');
+            }
+        }
+    });
+    
+    // Initial check on page load
+    if (isMobile()) {
+        if (sidebar) sidebar.classList.add('sidebar-collapsed');
+        if (chatPanel) chatPanel.classList.add('sidebar-collapsed');
+    }
+    
     // Handle mobile messages button click
     if (mobileMessagesButton) {
         mobileMessagesButton.addEventListener('click', function() {
@@ -4485,3 +4504,123 @@ function initCarouselNavigation() {
     });
 }
 
+// Synchronize the sidebar model selector with the header model selector
+function initializeSidebarModelSelector() {
+    const headerModelSelect = document.getElementById('model-select');
+    const sidebarModelSelect = document.getElementById('sidebar-model-select');
+    const headerRefreshButton = document.getElementById('refresh-models');
+    const sidebarRefreshButton = document.getElementById('sidebar-refresh-models');
+    
+    if (!headerModelSelect || !sidebarModelSelect) return;
+    
+    // Initialize sidebar model select with the same options as header model select
+    function syncModelOptions() {
+        // Clear existing options in sidebar selector
+        while (sidebarModelSelect.firstChild) {
+            sidebarModelSelect.removeChild(sidebarModelSelect.firstChild);
+        }
+        
+        // Copy options from header selector to sidebar selector
+        Array.from(headerModelSelect.children).forEach(child => {
+            const clone = child.cloneNode(true);
+            sidebarModelSelect.appendChild(clone);
+        });
+    }
+    
+    // Sync the selected value between selectors
+    function syncSelectedModel(sourceSelect, targetSelect) {
+        if (sourceSelect && targetSelect) {
+            targetSelect.value = sourceSelect.value;
+        }
+    }
+    
+    // Initial sync
+    syncModelOptions();
+    
+    // When header model select changes, update sidebar model select
+    headerModelSelect.addEventListener('change', () => {
+        syncSelectedModel(headerModelSelect, sidebarModelSelect);
+    });
+    
+    // When sidebar model select changes, update header model select and trigger change event
+    sidebarModelSelect.addEventListener('change', () => {
+        syncSelectedModel(sidebarModelSelect, headerModelSelect);
+        // Trigger change event on header model select to ensure any listeners are notified
+        const event = new Event('change');
+        headerModelSelect.dispatchEvent(event);
+    });
+    
+    // When models are refreshed from header button
+    if (headerRefreshButton) {
+        headerRefreshButton.addEventListener('click', () => {
+            // After a short delay to allow models to load
+            setTimeout(syncModelOptions, 500);
+        });
+    }
+    
+    // When models are refreshed from sidebar button
+    if (sidebarRefreshButton) {
+        sidebarRefreshButton.addEventListener('click', () => {
+            if (headerRefreshButton) {
+                // Trigger the header refresh button click
+                headerRefreshButton.click();
+            }
+        });
+    }
+    
+    // Also sync when the model list is updated
+    const modelSelectObserver = new MutationObserver(() => {
+        syncModelOptions();
+    });
+    
+    modelSelectObserver.observe(headerModelSelect, { childList: true, subtree: true });
+}
+
+// Call this function after the DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize all components
+    initializeSidebarModelSelector();
+    handleInitialLoading();
+});
+
+// Control initial loading screen
+function handleInitialLoading() {
+    const loadingScreen = document.getElementById('initial-loading-screen');
+    
+    // Check if key elements are loaded
+    function checkIfAppIsReady() {
+        // Different minimum loading times for desktop vs mobile
+        const isMobile = window.innerWidth <= 768;
+        const minLoadTime = isMobile ? 3000 : 1500; // 3 seconds for mobile, 1.5 for desktop
+        
+        const startTime = Date.now();
+        
+        // Elements to check if they're loaded/rendered
+        const elementsToCheck = [
+            document.querySelector('.sidebar'),
+            document.querySelector('.chat-panel'),
+            document.getElementById('model-select')
+        ];
+        
+        // Wait for minimum load time and check if elements are rendered
+        setTimeout(() => {
+            const allElementsLoaded = elementsToCheck.every(el => el !== null);
+            
+            if (allElementsLoaded) {
+                // Add loaded class to trigger fade-out animation
+                loadingScreen.classList.add('loaded');
+                
+                // Remove from DOM after animation completes
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 500); // Match transition duration from CSS
+            } else {
+                // If not all elements are loaded, check again in 300ms
+                setTimeout(checkIfAppIsReady, 300);
+            }
+        }, minLoadTime);
+    }
+    
+    // Start checking if app is ready
+    checkIfAppIsReady();
+}

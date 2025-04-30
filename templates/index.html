@@ -198,7 +198,7 @@
             display: none; /* Hidden by default, shown only on mobile */
             background: none;
             border: none;
-            color: var(--text-on-accent);
+            color: var(--text-secondary);
             font-size: 1.2rem;
             width: 36px;
             height: 36px;
@@ -226,6 +226,11 @@
             align-items: center;
             justify-content: center;
             color: var(--text-on-accent);
+        }
+        
+        .sidebar-toggle:hover {
+            transform: scale(1.1);
+            color: var(--text-accent);
         }
         
         .chat-info {
@@ -488,6 +493,7 @@
             gap: 1rem;
         }
         
+        /* Message Input Container Styling */
         .message-input-container {
             display: flex;
             align-items: center;
@@ -498,23 +504,42 @@
             position: relative;
         }
         
-        .message-input {
+        /* Message Input Wrapper - contains textarea and attachment preview */
+        .message-input-wrapper {
+            position: relative;
             flex-grow: 1;
-            padding: 0.75rem 1rem;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
+            display: flex;
+            align-items: center;
             background-color: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            transition: all 0.3s ease;
+            padding: 0 0.5rem 0 0.75rem;
+        }
+        
+        .message-input-wrapper:focus-within {
+            border-color: var(--bg-accent);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+        }
+        
+        /* Textarea styling */
+        .message-input-wrapper textarea {
+            flex-grow: 1;
+            border: none;
+            background: transparent;
+            padding: 0.75rem 0.5rem;
             color: var(--text-primary);
             font-size: 1rem;
-            transition: border-color 0.3s ease;
+            resize: none;
+            max-height: 150px;
+            min-height: 24px;
         }
         
-        .message-input:focus {
+        .message-input-wrapper textarea:focus {
             outline: none;
-            border-color: var(--bg-accent);
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
         }
         
+        /* File upload button - inside the input wrapper */
         .file-upload-button {
             display: flex;
             align-items: center;
@@ -523,37 +548,50 @@
             color: var(--text-secondary);
             border: none;
             border-radius: 50%;
-            width: 36px;
-            height: 36px;
+            width: 30px;
+            height: 30px;
             cursor: pointer;
             transition: all 0.2s ease;
             padding: 0;
+            margin-right: 4px;
+        }
+        
+        .file-upload-button i {
+            font-size: 0.85rem;
         }
         
         .file-upload-button:hover {
-            background-color: var(--bg-tertiary);
             color: var(--text-accent);
-            transform: scale(1.1);
-        }
-        
-        .file-upload-button.uploading {
             background-color: var(--bg-tertiary);
-            color: var(--text-accent);
-            animation: pulse 1.5s infinite;
         }
         
-        @keyframes pulse {
-            0% {
-                opacity: 1;
-            }
-            50% {
-                opacity: 0.6;
-            }
-            100% {
-                opacity: 1;
-            }
+        /* Send button styling - now inside the input wrapper */
+        .send-button {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--bg-accent);
+            color: var(--text-on-accent);
+            border: none;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            padding: 0;
+            margin-right: 2px;
         }
         
+        .send-button i {
+            font-size: 0.8rem;
+        }
+        
+        .send-button:hover {
+            background-color: var(--button-hover);
+            transform: scale(1.05);
+        }
+        
+        /* Hidden file input and upload status */
         .hidden-file-input {
             display: none;
         }
@@ -570,22 +608,69 @@
             text-overflow: ellipsis;
         }
         
-        .send-button {
-            background-color: var(--bg-accent);
-            color: var(--text-on-accent);
-            border: none;
-            border-radius: 6px;
-            padding: 10px 20px;
-            font-weight: bold;
+        /* Attachment preview styling */
+        #attachment-preview {
+            display: none;
+            align-items: center;
+            background-color: var(--bg-tertiary);
+            padding: 0.25rem 0.5rem;
+            border-radius: 12px;
+            margin-right: 0.5rem;
+            max-width: 200px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        #attachment-preview.visible {
+            display: flex;
+        }
+        
+        .remove-attachment {
+            margin-left: 0.5rem;
             cursor: pointer;
-            transition: all 0.2s ease;
+            color: var(--text-secondary);
+            font-weight: bold;
         }
         
-        .send-button:hover {
-            background-color: var(--button-hover);
-            transform: scale(1.05);
+        .remove-attachment:hover {
+            color: var(--text-accent);
         }
         
+        /* Mobile adjustments for message input */
+        @media (max-width: 768px) {
+            .message-input-container {
+                padding: 0.75rem 0.75rem;
+            }
+            
+            .message-input-wrapper {
+                padding: 0 0.25rem 0 0.5rem;
+                border-radius: 20px;
+            }
+            
+            .message-input-wrapper textarea {
+                padding: 0.5rem 0.25rem;
+                font-size: 0.9rem;
+                min-height: 20px;
+            }
+            
+            .file-upload-button, 
+            .send-button {
+                width: 26px;
+                height: 26px;
+            }
+            
+            .file-upload-button i,
+            .send-button i {
+                font-size: 0.75rem;
+            }
+            
+            .file-upload-button {
+                margin-right: 3px;
+            }
+        }
+        
+        /* User Message Styling */
         .user-message {
             align-self: flex-end;
             background-color: var(--message-user-bg);
@@ -2060,6 +2145,7 @@
             border-radius: 16px; 
             z-index: 1001; 
             min-width: 360px;
+            max-width: 90vw;
             box-shadow: 0 15px 40px rgba(0,0,0,0.3);
             overflow: hidden;
             color: var(--text-primary);
@@ -2952,7 +3038,7 @@
             min-height: 180px;
             max-height: 80vh;
             background: var(--background-primary, #fff);
-            color: var(--text-primary, #222);
+            color: var(--text-primary);
             border-radius: 1rem;
             box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 1.5px 6px rgba(0,0,0,0.12);
             z-index: 1200;
@@ -3003,7 +3089,7 @@
             min-height: 180px;
             max-height: 80vh;
             background: var(--background-primary, #fff);
-            color: var(--text-primary, #222);
+            color: var(--text-primary);
             border-radius: 1rem;
             box-shadow: 0 8px 32px rgba(0,0,0,0.18), 0 1.5px 6px rgba(0,0,0,0.12);
             z-index: 1200;
@@ -3042,9 +3128,548 @@
             background: rgba(0,0,0,0.32);
             z-index: 1199;
         }
+        
+        /* Sidebar model selector styling */
+        .sidebar-model-selector {
+            display: none; /* Hidden by default, shown only on mobile */
+            margin: 0.5rem 0 1.5rem 0;
+            padding: 0 1rem;
+            width: 100%;
+        }
+        
+        .sidebar-model-select-container {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            background: var(--background-secondary);
+            border-radius: 0.5rem;
+            overflow: hidden;
+            border: 1px solid var(--border-color, #e0e0e0);
+        }
+        
+        .sidebar-model-select {
+            flex: 1;
+            padding: 0.7rem 1rem;
+            font-size: 0.95rem;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            outline: none;
+            cursor: pointer;
+            width: 100%;
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 0.7rem center;
+            background-size: 1em;
+            padding-right: 2.5rem;
+        }
+        
+        .sidebar-refresh-button {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 0.5rem 0.8rem;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        
+        .sidebar-refresh-button:hover {
+            color: var(--accent-color);
+        }
+        
+        [data-theme="dark"] .sidebar-model-select-container {
+            background: var(--background-secondary-dark, #222);
+            border-color: var(--border-color-dark, #444);
+        }
+        
+        [data-theme="dark"] .sidebar-model-select {
+            color: var(--text-primary-dark, #fff);
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+        }
+        
+        [data-theme="dark"] .sidebar-refresh-button {
+            color: var(--text-secondary-dark, #aaa);
+        }
+        
+        [data-theme="dark"] .sidebar-refresh-button:hover {
+            color: var(--accent-color);
+        }
+        
+        @media (max-width: 768px) {
+            .model-selector {
+                display: none !important; /* Hide header model selector on mobile */
+            }
+            
+            .sidebar-model-selector {
+                display: block; /* Show sidebar model selector on mobile */
+            }
+        }
+        
+        /* Improve dropdown dividers for both desktop and mobile */
+        .model-select optgroup,
+        .sidebar-model-select optgroup {
+            font-weight: 600;
+            color: var(--text-primary);
+            background-color: var(--background-secondary);
+            padding: 5px 10px;
+            margin: 2px 0;
+        }
+        
+        .model-select option,
+        .sidebar-model-select option {
+            padding: 8px 10px;
+            background-color: var(--background-primary);
+        }
+        
+        /* Divider styling */
+        .model-select option[disabled],
+        .sidebar-model-select option[disabled] {
+            height: 1px;
+            margin: 9px 0;
+            overflow: hidden;
+            background-color: var(--border-color);
+            border: none;
+            opacity: 0.8;
+            padding: 0;
+        }
+        
+        /* Dark theme improvements */
+        [data-theme="dark"] .model-select optgroup,
+        [data-theme="dark"] .sidebar-model-select optgroup {
+            color: var(--text-primary-dark, #fff);
+            background-color: var(--background-secondary-dark, #222);
+        }
+        
+        [data-theme="dark"] .model-select option,
+        [data-theme="dark"] .sidebar-model-select option {
+            background-color: var(--background-primary-dark, #181818);
+            color: var(--text-primary-dark, #fff);
+        }
+        
+        [data-theme="dark"] .model-select option[disabled],
+        [data-theme="dark"] .sidebar-model-select option[disabled] {
+            background-color: var(--border-color-dark, #444);
+            opacity: 1;
+        }
+        
+        /* Mobile modal improvements - single column layout */
+        @media (max-width: 768px) {
+            /* General modal adjustments for mobile */
+            .modal .modal-content {
+                width: 95vw;
+                max-width: 95vw;
+                padding: 1.5rem 1rem;
+            }
+            
+            /* Force single column layout for modal form elements */
+            .modal .form-group,
+            .modal .input-group,
+            .modal .button-group,
+            .modal .modal-actions,
+            #message-modal .modal-actions,
+            #conversation-modal .modal-actions,
+            #preferences-modal .modal-actions {
+                flex-direction: column !important;
+                width: 100% !important;
+            }
+            
+            /* Ensure buttons and inputs take full width */
+            .modal button,
+            .modal input[type="text"],
+            .modal input[type="password"],
+            .modal input[type="email"],
+            .modal select,
+            .modal textarea,
+            #message-modal button,
+            #conversation-modal button,
+            #preferences-modal button {
+                width: 100% !important;
+                margin: 0.5rem 0 !important;
+            }
+            
+            /* Adjust spacing for stacked elements */
+            .modal .form-group > *,
+            .modal .input-group > *,
+            .modal .button-group > *,
+            .modal .modal-actions > * {
+                margin-right: 0 !important;
+                margin-bottom: 0.75rem !important;
+            }
+            
+            /* Ensure last child has no bottom margin */
+            .modal .form-group > *:last-child,
+            .modal .input-group > *:last-child,
+            .modal .button-group > *:last-child,
+            .modal .modal-actions > *:last-child {
+                margin-bottom: 0 !important;
+            }
+            
+            /* Bot management specific adjustments */
+            #bot-management-modal .bot-list-item {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                padding: 1rem !important;
+            }
+            
+            #bot-management-modal .bot-actions {
+                width: 100% !important;
+                margin-top: 1rem !important;
+                justify-content: space-between !important;
+            }
+            
+            #bot-management-modal .bot-info {
+                width: 100% !important;
+                margin-bottom: 0.5rem !important;
+            }
+        }
+        
+        /* Bot management modal excluded from single column layout */
+        #bot-management-modal .bot-list-item,
+        #bot-management-modal .bot-actions,
+        #bot-management-modal .bot-info {
+            /* Reset any forced column layout */
+            flex-direction: initial !important;
+            width: initial !important;
+            margin: initial !important;
+            align-items: initial !important;
+            padding: initial !important;
+            justify-content: initial !important;
+        }
+        
+        /* Bot editor modal uses single column layout on mobile */
+        @media (max-width: 768px) {
+            #bot-editor-modal .form-group,
+            #bot-editor-modal .input-group,
+            #bot-editor-modal .button-group,
+            #bot-editor-modal .modal-actions {
+                flex-direction: column !important;
+                width: 100% !important;
+            }
+            
+            #bot-editor-modal button,
+            #bot-editor-modal input[type="text"],
+            #bot-editor-modal input[type="password"],
+            #bot-editor-modal textarea,
+            #bot-editor-modal select {
+                width: 100% !important;
+                margin: 0.5rem 0 !important;
+            }
+            
+            #bot-editor-modal .form-group > *,
+            #bot-editor-modal .input-group > *,
+            #bot-editor-modal .button-group > *,
+            #bot-editor-modal .modal-actions > * {
+                margin-right: 0 !important;
+                margin-bottom: 0.75rem !important;
+            }
+            
+            #bot-editor-modal .form-group > *:last-child,
+            #bot-editor-modal .input-group > *:last-child,
+            #bot-editor-modal .button-group > *:last-child,
+            #bot-editor-modal .modal-actions > *:last-child {
+                margin-bottom: 0 !important;
+            }
+        }
+        
+        /* Bot editor layout - single column on mobile */
+        @media (max-width: 768px) {
+            /* Force single column layout with !important and more specific selectors */
+            #bot-management-modal .bot-form-container {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+            }
+            
+            #bot-management-modal .modal-content .modal-body #bot-editor-section .bot-form-container .bot-form-column {
+                width: 100% !important;
+                max-width: 100% !important;
+                flex: 1 1 100% !important;
+                margin-right: 0 !important;
+                margin-bottom: 1.5rem !important;
+            }
+            
+            /* Ensure all form elements take full width */
+            #bot-management-modal .bot-form-column input[type="text"],
+            #bot-management-modal .bot-form-column input[type="number"],
+            #bot-management-modal .bot-form-column textarea,
+            #bot-management-modal .bot-form-column select,
+            #bot-management-modal .bot-form-column button,
+            #bot-management-modal .bot-form-column .knowledge-base-selector {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0.5rem 0 !important;
+                box-sizing: border-box !important;
+            }
+            
+            /* Force form actions to stack */
+            #bot-management-modal .form-actions {
+                flex-direction: column !important;
+                width: 100% !important;
+            }
+            
+            #bot-management-modal .form-actions button {
+                width: 100% !important;
+                margin: 0.5rem 0 !important;
+            }
+            
+            /* Adjust knowledge base section */
+            #bot-management-modal .knowledge-base-selector {
+                flex-direction: column !important;
+            }
+            
+            #bot-management-modal .file-upload-container {
+                width: 100% !important;
+                margin-bottom: 1rem !important;
+            }
+            
+            #bot-management-modal #upload-knowledge-button {
+                width: 100% !important;
+            }
+            
+            /* Fix for parameter rows */
+            #bot-management-modal .parameter-row {
+                flex-direction: column !important;
+                align-items: flex-start !important;
+                width: 100% !important;
+            }
+            
+            #bot-management-modal .parameter-row input[type="range"] {
+                width: 100% !important;
+                margin: 0.5rem 0 !important;
+            }
+        }
+        
+        /* Mobile landing page fixes */
+        @media (max-width: 768px) {
+            .landing-page {
+                padding: 1rem;
+            }
+            
+            .landing-page h1 {
+                font-size: 1.8rem;
+            }
+            
+            .landing-page p {
+                font-size: 1rem;
+                margin-bottom: 1.5rem;
+            }
+            
+            .landing-logo {
+                height: 80px;
+            }
+            
+            .prompt-suggestions-container {
+                padding: 0 40px;
+            }
+            
+            .prompt-card {
+                min-width: 220px;
+                max-width: 260px;
+                padding: 0.8rem;
+            }
+            
+            .carousel-button {
+                width: 36px;
+                height: 36px;
+            }
+        }
+        
+        /* Improve bot management modal buttons on mobile */
+        @media (max-width: 768px) {
+            #bot-management-modal .modal-header {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 1rem;
+            }
+            
+            #bot-management-modal .header-left {
+                text-align: center;
+            }
+            
+            #bot-management-modal .header-right {
+                display: flex;
+                flex-direction: column;
+                gap: 0.75rem;
+            }
+            
+            #bot-management-modal #create-new-bot-button,
+            #bot-management-modal #back-to-bot-list-button {
+                width: 100%;
+                margin: 0;
+                padding: 0.75rem;
+                font-size: 1rem;
+                text-align: center;
+                justify-content: center;
+            }
+            
+            #bot-management-modal .close-button {
+                position: absolute;
+                top: 1rem;
+                right: 1rem;
+            }
+        }
+        
+        /* Ensure all modal close buttons are positioned in the top-right corner on mobile */
+        @media (max-width: 768px) {
+            /* General close button positioning for all modals */
+            .modal .close-button,
+            .modal .close-modal,
+            #message-modal .close-button,
+            #conversation-modal .close-button,
+            #preferences-modal .close-button,
+            #auth-modal .close-auth-modal,
+            #messages-modal #close-messages-modal,
+            #delete-confirm-modal .close-button {
+                position: absolute !important;
+                top: 0.75rem !important;
+                right: 0.75rem !important;
+                margin: 0 !important;
+                padding: 0.5rem !important;
+                font-size: 1.25rem !important;
+                line-height: 1 !important;
+                z-index: 10 !important;
+            }
+            
+            /* Ensure modal headers have enough padding for the close button */
+            .modal .modal-header,
+            .modal-content > h3,
+            .modal-content > .auth-header {
+                padding-right: 2.5rem !important;
+                position: relative !important;
+            }
+        }
+        
+        /* Initial Loading Screen */
+        .initial-loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-primary, #f5f7fa);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+        }
+        
+        [data-theme="dark"] .initial-loading-screen {
+            background-color: var(--bg-primary-dark, #1a1a1a);
+        }
+        
+        .loading-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .loading-logo {
+            width: auto;
+            height: 120px;
+            margin-bottom: 1rem;
+            animation: pulse 1.5s infinite alternate;
+        }
+        
+        .initial-loading-screen h1 {
+            font-size: 2.5rem;
+            margin: 0.5rem 0;
+            color: var(--text-accent, #3b82f6);
+            font-family: 'Orbitron', sans-serif;
+            font-weight: 700;
+            letter-spacing: 1px;
+        }
+        
+        .initial-loading-screen .version-number {
+            font-size: 1.5rem;
+            vertical-align: super;
+            margin-left: 2px;
+        }
+        
+        .loading-message {
+            font-size: 1.1rem;
+            color: var(--text-secondary, #6b7280);
+            margin-top: 1rem;
+        }
+        
+        /* Loading dots animation */
+        .loading-dots {
+            display: flex;
+            gap: 8px;
+            margin: 1rem 0;
+        }
+        
+        .loading-dots span {
+            width: 10px;
+            height: 10px;
+            background-color: var(--text-accent, #3b82f6);
+            border-radius: 50%;
+            display: inline-block;
+            animation: loadingDots 1.4s infinite ease-in-out both;
+        }
+        
+        .loading-dots span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+        
+        .loading-dots span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+        
+        @keyframes loadingDots {
+            0%, 80%, 100% {
+                transform: scale(0);
+                opacity: 0.3;
+            }
+            40% {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+        
+        /* Mobile adjustments for loading screen */
+        @media (max-width: 768px) {
+            .loading-logo {
+                height: 90px;
+            }
+            
+            .initial-loading-screen h1 {
+                font-size: 2rem;
+            }
+            
+            .loading-message {
+                font-size: 1rem;
+            }
+        }
+        
+        /* Hide loading screen when platform is ready */
+        .initial-loading-screen.loaded {
+            opacity: 0;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
+    <!-- Initial Loading Screen -->
+    <div id="initial-loading-screen" class="initial-loading-screen">
+        <div class="loading-content">
+            <img src="/static/assets/bigxeno.png" alt="MIDAS Logo" class="loading-logo">
+            <div class="loading-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <p class="loading-message">Flexing the tentacles...</p>
+        </div>
+    </div>
+    
     <div class="app-container">
         <header class="header">
             <div class="header-left">
@@ -3099,6 +3724,18 @@
                 <div class="sidebar-header">
                 </div>
                 <div class="sidebar-actions">
+                    <!-- Mobile model selector (only visible on mobile) -->
+                    <div class="sidebar-model-selector">
+                        <div class="sidebar-model-select-container">
+                            <select id="sidebar-model-select" class="sidebar-model-select">
+                                <option value="" disabled selected>Loading models...</option>
+                            </select>
+                            <button id="sidebar-refresh-models" class="sidebar-refresh-button">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
                     <button id="new-chat-button" class="new-chat-button">
                         <i class="fas fa-plus"></i>
                         <span>New Chat</span>
@@ -3111,6 +3748,7 @@
                         <i class="fas fa-robot"></i>
                         <span>Manage Bots</span>
                     </button>
+                    
                     <button id="preferences-button" class="sidebar-button preferences-button">
                         <i class="fas fa-cog"></i>
                         <span>Settings</span>
@@ -3161,10 +3799,6 @@
                 
                 <div class="message-input-container">
                     <div id="upload-status" class="upload-status-indicator"></div>
-                    <button id="file-upload-button" class="file-upload-button" title="Attach document">
-                        <i class="fas fa-paperclip"></i>
-                    </button>
-                    <input type="file" id="doc-upload-input" name="document" accept=".txt,.pdf,.md" class="hidden-file-input" />
                     <div class="message-input-wrapper">
                         <textarea id="message-input" 
                                class="message-input" 
@@ -3173,11 +3807,14 @@
                             <span></span> <!-- Filename will go here -->
                             <span class="remove-attachment" title="Remove attachment">&times;</span>
                         </div>
+                        <button id="file-upload-button" class="file-upload-button" title="Attach document">
+                            <i class="fas fa-paperclip"></i>
+                        </button>
+                        <button id="send-button" class="send-button" title="Send message">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
                     </div>
-                    <button id="send-button" class="send-button">
-                        <span>Send</span>
-                        <i class="fas fa-paper-plane"></i>
-                    </button>
+                    <input type="file" id="doc-upload-input" name="document" accept=".txt,.pdf,.md" class="hidden-file-input" />
                 </div>
             </div>
         </div>
@@ -3189,7 +3826,7 @@
         </div>
         
         <!-- Delete Confirmation Modal -->
-        <div id="delete-confirm-modal" class="modal" style="display:none !important;">
+        <div id="delete-confirm-modal" class="modal" style="display:none;">
             <div class="modal-content">
                 <h3>Delete Conversation</h3>
                 <p>Are you sure you want to delete this conversation?</p>
@@ -3201,7 +3838,7 @@
         </div>
         
         <!-- Preferences Modal -->
-        <div id="preferences-modal" class="modal" style="display:none !important;">
+        <div id="preferences-modal" class="modal" style="display:none;">
             <div class="modal-content preferences-modal-content">
                 <h3>Settings</h3>
                 <div class="preferences-tabs">
@@ -3330,8 +3967,14 @@
             </div>
         </div>
         
+        <!-- Loading animation for preferences -->
+        <div id="loading-animation" class="loading-animation">
+            <img src="/static/assets/xeno.png" alt="Loading" class="loading-image">
+            <div class="loading-pulse"></div>
+        </div>
+        
         <!-- Bot Management Modal -->
-        <div id="bot-management-modal" class="modal" style="display:none !important;">
+        <div id="bot-management-modal" class="modal" style="display:none;">
             <div class="modal-content">
                 <div class="modal-header">
                     <div class="header-left">
