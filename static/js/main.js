@@ -2411,28 +2411,61 @@ async function sendMessage() {
         if (isNewConversation && currentConversationId) {
             console.log("Generating title for new conversation:", currentConversationId);
             try {
-                // Update conversation list to show latest message
+                // First update conversation list to show latest message
                 loadConversations(true);
                 
+                // Use the same model that was used for the response
+                // If it's a special model like a bot or workflow, use the default text model
+                let modelForTitleGeneration = selectedModel;
+                
+                // Check if the selected model is valid for title generation
+                const selectedModelInfo = availableModels.find(m => m.id === selectedModel);
+                
+                // If the model doesn't exist or doesn't support text generation, find a default text model
+                if (!selectedModelInfo || (selectedModelInfo.capabilities && !selectedModelInfo.capabilities.includes('text-generation'))) {
+                    // Find the first available text model
+                    const textModel = availableModels.find(m => m.capabilities && m.capabilities.includes('text-generation'));
+                    if (textModel) {
+                        modelForTitleGeneration = textModel.id;
+                        console.log("Using alternative text model", modelForTitleGeneration, "for title generation");
+                    } else {
+                        // If no text model is available, use the selected model anyway
+                        console.log("No text model found, using selected model", selectedModel, "for title generation");
+                    }
+                } else {
+                    console.log("Using current model", modelForTitleGeneration, "for title generation");
+                }
+                
                 // Generate a title based on the conversation
-                const titleResponse = await fetch(`/api/conversations/${currentConversationId}/generate-title`, {
+                const titleResponse = await fetch(`/api/conversations/${currentConversationId}/generate-title?model=${modelForTitleGeneration}`, {
                     method: 'POST'
                 });
-                const titleData = await titleResponse.json();
                 
-                if (titleData.status === 'success' && titleData.title) {
-                    console.log("Title generated successfully:", titleData.title);
-                    // Update the title in the UI
-                    updatePageTitle(titleData.title);
-                    updateHeaderInfo(titleData.title, selectedModel);
+                if (titleResponse.ok) {
+                    const titleData = await titleResponse.json();
                     
-                    // Reload conversations to show new title
-                    loadConversations(true);
+                    if (titleData.status === 'success' && titleData.title) {
+                        console.log("Title generated successfully:", titleData.title);
+                        // Update the title in the UI
+                        updatePageTitle(titleData.title);
+                        updateHeaderInfo(titleData.title, selectedModel);
+                        
+                        // Reload conversations to show new title
+                        loadConversations(true);
+                    } else {
+                        console.warn("Title generation returned an error:", titleData.message || "Unknown error");
+                        // Still reload conversations to show updated list
+                        loadConversations(true);
+                    }
                 } else {
-                    console.error("Title generation failed:", titleData);
+                    console.warn("Title generation request failed with status:", titleResponse.status);
+                    // Still reload conversations to show updated list
+                    loadConversations(true);
                 }
             } catch (titleError) {
                 console.error('Error generating title:', titleError);
+                // Still reload conversations even if title generation fails
+                loadConversations(true);
             } finally {
                 // Reset the new conversation flag
                 isNewConversation = false;

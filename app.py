@@ -18,6 +18,7 @@ import math
 import random
 import uuid
 import time
+from flask import Flask, render_template, request, jsonify, Response, redirect, url_for, session, send_from_directory
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
 from passlib.hash import bcrypt
 import sqlite3  # Import sqlite3 here
@@ -61,6 +62,70 @@ def load_user(user_id):
     if user_dict:
         return User(user_dict)
     return None
+    
+# --- Helper Functions ---
+def call_llm(model, messages, max_tokens=500, temperature=0.7, top_p=0.95, timeout=10):
+    """Call an LLM model with the given messages and parameters"""
+    try:
+        app.logger.info(f"Calling LLM model {model} with {len(messages)} messages (timeout: {timeout}s)")
+        
+        # Handle different model types
+        if model.startswith('bot:'):
+            # For bot models, use the generate_bot_response function
+            bot_id = model.split(':', 1)[1]
+            bot = Bot.get_bot_by_id(bot_id)
+            if not bot:
+                raise ValueError(f"Bot {bot_id} not found")
+            
+            # Extract just the content from the messages
+            prompt = "\n".join([msg.get('content', '') for msg in messages])
+            response = bot.generate_response(prompt, max_tokens=max_tokens)
+            return response
+        else:
+            # For Ollama models
+            try:
+                # Set a custom timeout for the request
+                import socket
+                original_timeout = socket.getdefaulttimeout()
+                socket.setdefaulttimeout(timeout)
+                
+                try:
+                    # Check if Ollama is available with the specified timeout
+                    app.logger.info(f"Calling Ollama with model: {model} at host: {OLLAMA_HOST}")
+                    client = ollama.Client(host=OLLAMA_HOST)
+                    response = client.chat(
+                        model=model,
+                        messages=messages,
+                        options={
+                            "temperature": temperature,
+                            "top_p": top_p,
+                            "num_predict": max_tokens
+                        }
+                    )
+                    return response['message']['content']
+                finally:
+                    # Restore original timeout
+                    socket.setdefaulttimeout(original_timeout)
+                    
+            except requests.exceptions.ConnectionError:
+                raise ConnectionError("Failed to connect to Ollama. Please check that Ollama is downloaded, running and accessible.")
+            except socket.timeout:
+                raise ConnectionError(f"Connection to Ollama timed out after {timeout} seconds.")
+            except Exception as e:
+                error_msg = str(e).lower()
+                app.logger.error(f"Ollama error: {error_msg}")
+                
+                if "not found" in error_msg:
+                    # Try to extract the model name from the error message
+                    raise ValueError(f"Model '{model}' not found in Ollama. Please check available models.")
+                elif "connection" in error_msg or "timeout" in error_msg:
+                    raise ConnectionError("Failed to connect to Ollama. Please check that Ollama is running.")
+                else:
+                    raise ValueError(f"Error calling model '{model}': {str(e)}")
+
+    except Exception as e:
+        app.logger.error(f"Error calling LLM: {str(e)}")
+        raise
 
 @login_manager.unauthorized_handler
 def unauthorized():
@@ -770,8 +835,12 @@ Answer:"""
 @app.route('/api/conversations/<id>/generate-title', methods=['POST'])
 @login_required
 def generate_conversation_title(id):
-    """Generate a title for the conversation based on its first message"""
+    """Generate a title for the conversation based on its messages using an LLM"""
     try:
+        # Get the model from query parameters or use default
+        model = request.args.get('model', DEFAULT_MODEL)
+        app.logger.info(f"Generating title for conversation {id} using model {model}")
+        
         # Get the conversation
         conversation = db.get_user_conversation(current_user.id, id)
         if not conversation:
@@ -790,20 +859,95 @@ def generate_conversation_title(id):
                 'message': 'No messages found'
             }), 404
         
-        # Find first user message
-        first_user_message = next((m for m in messages if m['role'] == 'user'), None)
-        if not first_user_message:
+        # Check if we have at least one user message and one assistant message
+        user_messages = [m for m in messages if m['role'] == 'user']
+        assistant_messages = [m for m in messages if m['role'] == 'assistant']
+        
+        if not user_messages:
             app.logger.warning(f"No user message found in conversation {id}")
             return jsonify({
                 'status': 'error',
                 'message': 'No user message found'
             }), 404
         
-        # Generate title from first message
-        title = first_user_message['content']
-        if len(title) > 50:
-            title = title[:47] + '...'
-            
+        # Extract first user message for fallback title
+        first_message = user_messages[0]['content']
+        fallback_title = first_message[:47] + '...' if len(first_message) > 50 else first_message
+        
+        # Check if the model is valid (don't restrict to AVAILABLE_MODELS)
+        valid_model = model and model != 'none'
+        
+        # Use the model if it's valid, otherwise use fallback
+        if not valid_model:
+            app.logger.info(f"No valid model specified for title generation, using fallback")
+            title = fallback_title
+        else:
+            try:
+                # Prepare messages for LLM
+                # Get up to first 3 message pairs for context
+                context_messages = []
+                for i, msg in enumerate(messages):
+                    if i >= 6:  # Limit to first 3 pairs (6 messages)
+                        break
+                    context_messages.append({
+                        'role': msg['role'],
+                        'content': msg['content']
+                    })
+                
+                # Create system prompt for title generation
+                system_prompt = """Generate a concise, descriptive title for this conversation. 
+                The title should be 3-7 words, capture the main topic, and be informative. 
+                Do not use quotes or punctuation in the title. 
+                Respond ONLY with the title text."""
+                
+                # Prepare messages for the LLM
+                llm_messages = [
+                    {"role": "system", "content": system_prompt}
+                ]
+                
+                # Add context messages
+                llm_messages.extend(context_messages)
+                
+                # Add final instruction
+                llm_messages.append({"role": "user", "content": "Based on this conversation, generate an appropriate title."})
+                
+                # Call the LLM with timeout
+                app.logger.info(f"Calling LLM with {len(llm_messages)} messages")
+                
+                # Try to connect to Ollama with a short timeout and catch ALL exceptions
+                title = fallback_title  # Default to fallback
+                try:
+                    # Use a very short timeout to avoid hanging the request
+                    response = call_llm(model, llm_messages, max_tokens=20, temperature=0.7, timeout=5)
+                    
+                    # Only use the response if it's valid
+                    if response and response.strip():
+                        title = response.strip()
+                        app.logger.info(f"Generated title: {title}")
+                        
+                        # Ensure title is not too long
+                        if len(title) > 50:
+                            title = title[:47] + '...'
+                    else:
+                        app.logger.warning("LLM returned empty title, using fallback")
+                        app.logger.info(f"Using fallback title: {title}")
+                        
+                except ConnectionError as e:
+                    # Specific handling for connection errors
+                    app.logger.warning(f"Ollama connection error: {str(e)}")
+                    app.logger.info(f"Using fallback title: {title}")
+                except ValueError as e:
+                    # Specific handling for model errors
+                    app.logger.warning(f"Model error: {str(e)}")
+                    app.logger.info(f"Using fallback title: {title}")
+                except Exception as e:
+                    # Catch-all for any other errors
+                    app.logger.warning(f"Unexpected error in title generation: {str(e)}")
+                    app.logger.info(f"Using fallback title: {title}")
+            except Exception as e:
+                app.logger.error(f"Error in title generation process: {str(e)}")
+                title = fallback_title
+        
         # Update conversation title
         db.update_conversation_title(id, title)
         
