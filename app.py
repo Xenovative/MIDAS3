@@ -370,27 +370,13 @@ def update_conversation(conversation_id):
                         app.logger.error(f"Error fetching bot details: {str(e)}")
                         model_name = DEFAULT_MODEL
                 
-                # Check if model supports thinking process
-                supports_thinking = model_name in THINKING_MODELS
-                
-                # Create prompt for title generation
-                if supports_thinking:
-                    title_prompt = (
-                        "Based on this user message, generate a concise, descriptive title "
-                        "for this conversation (3-5 words). The title should clearly reflect "
-                        "the main topic or question. First think about it inside "
-                        "<think></think> tags, then provide ONLY the title with no extra text, "
-                        "quotes, or punctuation.\n\n"
-                        f"User message: {first_user_message}"
-                    )
-                else:
-                    title_prompt = (
-                        "Based on this user message, generate a concise, descriptive title "
-                        "for this conversation (3-5 words). The title should clearly reflect "
-                        "the main topic or question. Provide ONLY the title with no extra text, "
-                        "quotes, or punctuation.\n\n"
-                        f"User message: {first_user_message}"
-                    )
+                # Always use a simple title prompt regardless of model
+                title_prompt = (
+                    "Generate a short, descriptive title for this conversation (3-5 words). "
+                    "Respond with ONLY the title text. No explanation, no thinking, no extra text. "
+                    "Just the title itself.\n\n"
+                    f"User message: {first_user_message}"
+                )
                 
                 try:
                     client = ollama.Client(host=OLLAMA_HOST)
@@ -402,15 +388,18 @@ def update_conversation(conversation_id):
                     generated_title = response['message']['content']
                     app.logger.info(f"Raw generated title: {generated_title}")
                     
-                    # Clean up the title if using a thinking model
-                    if supports_thinking and '<think>' in generated_title and '</think>' in generated_title:
-                        # Remove the thinking section
-                        think_start = generated_title.find('<think>') + len('<think>')
-                        think_end = generated_title.find('</think>') + len('</think>')
-                        generated_title = generated_title.replace(generated_title[think_start:think_end], '').strip()
+                    # Simple cleanup approach - take first line, remove tags, clean up formatting
                     
-                    # Clean up the title - remove quotes, periods, and extra spaces
-                    title = generated_title.strip('"\'.,!?').strip()
+                    # Take first line only if multiple lines
+                    if '\n' in generated_title:
+                        generated_title = generated_title.split('\n')[0].strip()
+                    
+                    # Remove any HTML-like tags
+                    import re
+                    generated_title = re.sub(r'<[^>]+>', '', generated_title)
+                    
+                    # Remove quotes, punctuation, and extra spaces
+                    title = generated_title.strip('"\'\'.,!?').strip()
                     
                     # Capitalize the first letter of each word for consistency
                     title = ' '.join(word.capitalize() for word in title.split())
@@ -418,6 +407,10 @@ def update_conversation(conversation_id):
                     # Limit to 50 characters if somehow still too long
                     if len(title) > 50:
                         title = title[:47] + '...'
+                        
+                    # If we ended up with nothing useful, use fallback
+                    if not title or len(title) < 3:
+                        title = fallback_title
                         
                     app.logger.info(f"Final generated title: {title}")
                 except Exception as e:
@@ -894,11 +887,8 @@ def generate_conversation_title(id):
                         'content': msg['content']
                     })
                 
-                # Create system prompt for title generation
-                system_prompt = """Generate a concise, descriptive title for this conversation. 
-                The title should be 3-7 words, capture the main topic, and be informative. 
-                Do not use quotes or punctuation in the title. 
-                Respond ONLY with the title text."""
+                # Create a very simple, direct prompt for title generation
+                system_prompt = "You will create a short, descriptive title (3-7 words) for a conversation. ONLY respond with the title text."
                 
                 # Prepare messages for the LLM
                 llm_messages = [
@@ -908,26 +898,63 @@ def generate_conversation_title(id):
                 # Add context messages
                 llm_messages.extend(context_messages)
                 
-                # Add final instruction
-                llm_messages.append({"role": "user", "content": "Based on this conversation, generate an appropriate title."})
+                # Add final instruction with explicit formatting - keep it extremely simple
+                llm_messages.append({"role": "user", "content": "Create a title for this conversation. Respond with ONLY the title text."})
+                
+                # For thinking models, use a more direct approach
+                if model in THINKING_MODELS:
+                    # Replace with a more direct approach for thinking models
+                    llm_messages = [
+                        {"role": "system", "content": "You will output ONLY a short title (3-7 words). No explanation, no thinking, no tags."}
+                    ]
+                    llm_messages.extend(context_messages)
+                    llm_messages.append({"role": "user", "content": "Title for this conversation (3-7 words):"})
+
+
+
                 
                 # Call the LLM with timeout
                 app.logger.info(f"Calling LLM with {len(llm_messages)} messages")
                 
+                # No need for a separate clean_title function anymore - we've simplified the approach
+                    
                 # Try to connect to Ollama with a short timeout and catch ALL exceptions
                 title = fallback_title  # Default to fallback
                 try:
                     # Use a very short timeout to avoid hanging the request
-                    response = call_llm(model, llm_messages, max_tokens=20, temperature=0.7, timeout=5)
+                    app.logger.info(f"Calling LLM with model {model} for title generation")
+                    
+                    response = call_llm(model, llm_messages, max_tokens=50, temperature=0.3, timeout=5)
+                    app.logger.info(f"Raw LLM response: '{response}'")
                     
                     # Only use the response if it's valid
                     if response and response.strip():
-                        title = response.strip()
-                        app.logger.info(f"Generated title: {title}")
+                        # Simple cleanup approach
+                        raw_title = response.strip()
                         
-                        # Ensure title is not too long
-                        if len(title) > 50:
-                            title = title[:47] + '...'
+                        # Take first line only if multiple lines
+                        if '\n' in raw_title:
+                            raw_title = raw_title.split('\n')[0].strip()
+                        
+                        # Remove any HTML-like tags
+                        import re
+                        raw_title = re.sub(r'<[^>]+>', '', raw_title)
+                        
+                        # Remove quotes, punctuation, and extra spaces
+                        clean_title = raw_title.strip('"\'\'.,!?').strip()
+                        
+                        # Capitalize the first letter of each word for consistency
+                        clean_title = ' '.join(word.capitalize() for word in clean_title.split())
+                        
+                        # Limit to 50 characters if somehow still too long
+                        if len(clean_title) > 50:
+                            clean_title = clean_title[:47] + '...'
+                            
+                        # If we ended up with nothing useful, use fallback
+                        if clean_title and len(clean_title) >= 3:
+                            title = clean_title
+                        
+                        app.logger.info(f"Final generated title: {title}")
                     else:
                         app.logger.warning("LLM returned empty title, using fallback")
                         app.logger.info(f"Using fallback title: {title}")
@@ -943,7 +970,6 @@ def generate_conversation_title(id):
                 except Exception as e:
                     # Catch-all for any other errors
                     app.logger.warning(f"Unexpected error in title generation: {str(e)}")
-                    app.logger.info(f"Using fallback title: {title}")
             except Exception as e:
                 app.logger.error(f"Error in title generation process: {str(e)}")
                 title = fallback_title
