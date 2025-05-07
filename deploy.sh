@@ -7,7 +7,7 @@
 sudo dnf check-update -y
 sudo dnf upgrade -y
 echo "Installing core packages including Nginx and build tools..."
-sudo dnf install -y python3 python3-pip python3-venv nginx git openssl gcc python3-devel openssl-devel libffi-devel cargo
+sudo dnf install -y python3 python3-pip python3.9-venv nginx git openssl gcc python3-devel openssl-devel libffi-devel cargo
 
 echo "Reloading systemd manager configuration after package installations..."
 sudo systemctl daemon-reload
