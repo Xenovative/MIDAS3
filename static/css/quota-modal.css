@@ -1,0 +1,123 @@
+/* Quota Exceeded Modal Styles */
+#quota-exceeded-modal .modal-content {
+    max-width: 500px;
+    width: 90%;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+}
+
+#quota-exceeded-modal .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+#quota-exceeded-modal .modal-header h3 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--error-color);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#quota-exceeded-modal .modal-header h3 i {
+    color: var(--error-color);
+}
+
+#quota-exceeded-modal .modal-body {
+    padding: 20px;
+}
+
+.quota-modal-layout {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+}
+
+.quota-modal-icon {
+    flex: 0 0 100px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.quota-modal-info {
+    flex: 1;
+}
+
+.quota-message {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--error-color);
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+.quota-details {
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 16px;
+}
+
+.quota-stat {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+    font-size: 14px;
+}
+
+.quota-stat:last-child {
+    margin-bottom: 0;
+}
+
+.quota-stat i {
+    width: 20px;
+    margin-right: 10px;
+    color: var(--accent-color);
+}
+
+.quota-stat span:first-of-type {
+    flex: 1;
+}
+
+.quota-value {
+    font-weight: 600;
+    color: var(--accent-color);
+}
+
+.quota-info {
+    font-size: 14px;
+    color: var(--text-color-muted);
+    font-style: italic;
+    margin-bottom: 0;
+}
+
+#quota-exceeded-modal .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 20px;
+    background-color: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+}
+
+@media (max-width: 600px) {
+    .quota-modal-layout {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .quota-modal-icon {
+        margin-bottom: 16px;
+    }
+    
+    .quota-stat {
+        justify-content: space-between;
+    }
+}

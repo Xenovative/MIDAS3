@@ -20,6 +20,7 @@ import uuid
 import time
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
 from passlib.hash import bcrypt
+import sqlite3  # Import sqlite3 here
 
 app = Flask(__name__, 
            template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -339,7 +340,7 @@ def update_conversation(conversation_id):
                     # Clean up the title if using a thinking model
                     if supports_thinking and '<think>' in generated_title and '</think>' in generated_title:
                         # Remove the thinking section
-                        think_start = generated_title.find('<think>')
+                        think_start = generated_title.find('<think>') + len('<think>')
                         think_end = generated_title.find('</think>') + len('</think>')
                         generated_title = generated_title.replace(generated_title[think_start:think_end], '').strip()
                     
@@ -446,6 +447,7 @@ def add_message(conversation_id):
         content = data.get('content')
         thinking = data.get('thinking')
         images = data.get('images') # Get images from request
+        attachment_filename = data.get('attachment_filename')  # Get attachment filename
         secret = data.get('secret', False)
         
         if not role or not content:
@@ -458,8 +460,15 @@ def add_message(conversation_id):
             # Do not save to DB, just return a fake message ID
             message_id = f"secret-{uuid.uuid4()}"
         else:
-            # Pass images to db.add_message
-            message_id = db.add_message(conversation_id, role, content, thinking, images) 
+            # Pass images and attachment_filename to db.add_message
+            message_id = db.add_message(
+                conversation_id, 
+                role, 
+                content, 
+                thinking, 
+                images, 
+                attachment_filename
+            ) 
         
         return jsonify({
             'message_id': message_id,
@@ -479,24 +488,69 @@ def generate():
     """Generate a response to a user's message"""
     try:
         data = request.json
-        user_message = data.get('message')
+        user_message = data.get('message', '').strip()
+        model_name = data.get('model', 'llama3:8b')
+        system_prompt = data.get('system_prompt', '')
         conversation_id = data.get('conversation_id')
-        model_name = data.get('model', config.DEFAULT_MODEL) # Get model from request or config
+        parameters = data.get('parameters', {})
+        knowledge_files = data.get('knowledge_files', [])
         attachment_filename = data.get('attachment_filename') # Get attachment filename
-        images = data.get('images') # Get optional images list (base64 strings)
         secret = data.get('secret', False)
         
-        if not conversation_id:
-            return jsonify({'error': 'Conversation ID is required'}), 400
+        # Check user quota
+        quota_check = db.check_user_quota(current_user.id)
+        app.logger.info(f"Quota check result: {quota_check}")
         
-        if not user_message and not attachment_filename:
-            # Allow sending request if only an attachment is present
-            # If user message is empty but there's an attachment, create a placeholder message
-            if attachment_filename:
-                user_message = f"(Attached file: {attachment_filename})"
+        if not quota_check['allowed'] and current_user.role != 'admin':  # Admins bypass quota limits
+            reason = quota_check['reason']
+            limit = quota_check['limit']
+            used = quota_check['used']
+            
+            if reason == 'daily_limit':
+                message = f"You've reached your daily message limit ({used}/{limit}). Please try again tomorrow."
+            elif reason == 'monthly_limit':
+                message = f"You've reached your monthly message limit ({used}/{limit}). Please try again next month."
             else:
-                return jsonify({'error': 'Message content is required if no file is attached'}), 400
-
+                message = "You've exceeded your message quota."
+            
+            # Get the full quota information for debugging
+            full_quota = db.get_user_quota(current_user.id)
+            app.logger.info(f"Full quota info: {full_quota}")
+            
+            # Include both quota check and full quota info
+            quota_info = {
+                **quota_check,
+                'full_quota': full_quota
+            }
+                
+            return jsonify({
+                'status': 'error',
+                'message': message,
+                'quota_exceeded': True,
+                'quota_info': quota_info
+            }), 429  # Too Many Requests
+        
+        # If no message and no attachment, return error
+        if not user_message and not attachment_filename:
+            return jsonify({'status': 'error', 'message': 'No message provided'}), 400
+            
+        # If only attachment, create a default message
+        if attachment_filename:
+            user_message = f"(Attached file: {attachment_filename})" if not user_message else user_message
+            
+        # Create a new conversation if none exists
+        if not conversation_id:
+            conversation_id = db.create_conversation(current_user.id, 'New Conversation', model_name)
+            
+        if not secret:
+            # Pass attachment_filename when adding user message
+            user_message_id = db.add_message(conversation_id, 'user', user_message, attachment_filename=attachment_filename)
+            
+            # Increment message count for quota tracking
+            db.increment_user_message_count(current_user.id)
+        else:
+            user_message_id = f"secret-{uuid.uuid4()}"
+        
         # --- 1. Add User Message to DB ---
         try:
             if not secret:
@@ -571,6 +625,8 @@ def generate():
             "content": user_message
         }
         
+        # Check if there are images to include
+        images = data.get('images', [])
         if images:
             user_msg["images"] = images
         
@@ -660,9 +716,7 @@ Answer:"""
                 
                 # Save the assistant's response to the database and get its ID
                 if not secret:
-                    import sqlite3
-                    DB_PATH = os.path.join('data', 'conversations.db')
-                    conn = sqlite3.connect(DB_PATH)
+                    conn = sqlite3.connect(db.DB_PATH)
                     cursor = conn.cursor()
                     cursor.execute("""
                         INSERT INTO messages 
@@ -1044,6 +1098,177 @@ def admin_change_user_password(user_id):
         app.logger.error(f"Error changing user password: {e}")
         return jsonify({'status': 'error', 'message': 'Failed to update password'}), 500
 
+@app.route('/api/users/<int:user_id>/quota', methods=['GET'])
+@login_required
+@admin_required
+def get_user_quota_api(user_id):
+    """Get quota information for a user (admin only)"""
+    try:
+        # Check if user exists
+        user = db.get_user_by_id(user_id)
+        if not user:
+            return jsonify({
+                'status': 'error',
+                'message': 'User not found'
+            }), 404
+            
+        quota = db.get_user_quota(user_id)
+        if not quota:
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to retrieve quota information'
+            }), 500
+            
+        return jsonify({
+            'status': 'success',
+            'quota': quota
+        })
+    except Exception as e:
+        app.logger.error(f"Error getting user quota: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to retrieve quota information',
+            'details': str(e)
+        }), 500
+
+@app.route('/api/users/<int:user_id>/quota', methods=['PUT'])
+@login_required
+@admin_required
+def update_user_quota_api(user_id):
+    """Update quota settings for a user (admin only)"""
+    try:
+        data = request.json
+        app.logger.info(f"Received quota update request: {data}")
+        
+        # Check if user exists
+        user = db.get_user_by_id(user_id)
+        if not user:
+            app.logger.error(f"User not found: {user_id}")
+            return jsonify({
+                'status': 'error',
+                'message': 'User not found'
+            }), 404
+            
+        # Get quota parameters
+        daily_limit = data.get('daily_message_limit')
+        monthly_limit = data.get('monthly_message_limit')
+        max_attachment_size = data.get('max_attachment_size_kb')
+        
+        app.logger.info(f"Quota parameters: daily={daily_limit}, monthly={monthly_limit}, attachment={max_attachment_size}")
+        
+        # Validate input
+        if daily_limit is not None and (not isinstance(daily_limit, int) or daily_limit < 0):
+            return jsonify({
+                'status': 'error',
+                'message': 'Daily message limit must be a positive integer'
+            }), 400
+            
+        if monthly_limit is not None and (not isinstance(monthly_limit, int) or monthly_limit < 0):
+            return jsonify({
+                'status': 'error',
+                'message': 'Monthly message limit must be a positive integer'
+            }), 400
+            
+        if max_attachment_size is not None and (not isinstance(max_attachment_size, int) or max_attachment_size < 0):
+            return jsonify({
+                'status': 'error',
+                'message': 'Max attachment size must be a positive integer'
+            }), 400
+            
+        # Update quota
+        updated_quota = db.update_user_quota(user_id, daily_limit, monthly_limit, max_attachment_size)
+        if not updated_quota:
+            app.logger.error(f"Failed to update quota for user {user_id}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to update quota settings'
+            }), 500
+            
+        app.logger.info(f"Updated quota for user {user_id}: {updated_quota}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Quota settings updated successfully',
+            'quota': updated_quota
+        })
+    except Exception as e:
+        app.logger.error(f"Error updating user quota: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to update quota settings',
+            'details': str(e)
+        }), 500
+
+@app.route('/api/quota', methods=['GET'])
+@login_required
+def get_my_quota():
+    """Get quota information for the current user"""
+    try:
+        user_id = current_user.id
+        quota_check = db.check_user_quota(user_id)
+        
+        return jsonify({
+            'status': 'success',
+            'quota': quota_check
+        })
+    except Exception as e:
+        app.logger.error(f"Error getting quota: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to retrieve quota information',
+            'details': str(e)
+        }), 500
+
+@app.route('/api/users/<int:user_id>/quota/reset', methods=['POST'])
+@login_required
+@admin_required
+def reset_user_quota_counters(user_id):
+    """Reset a user's quota usage counters (admin only)"""
+    try:
+        # Check if user exists
+        user = db.get_user_by_id(user_id)
+        if not user:
+            return jsonify({
+                'status': 'error',
+                'message': 'User not found'
+            }), 404
+            
+        # Reset counters
+        conn = sqlite3.connect(db.DB_PATH)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                UPDATE user_quotas 
+                SET messages_used_today = 0,
+                    messages_used_month = 0,
+                    last_reset_date = CURRENT_DATE
+                WHERE user_id = ?
+            ''', (user_id,))
+            conn.commit()
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'Quota counters reset successfully'
+            })
+        except Exception as e:
+            conn.rollback()
+            app.logger.error(f"Database error resetting quota counters: {e}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to reset quota counters',
+                'details': str(e)
+            }), 500
+        finally:
+            conn.close()
+    except Exception as e:
+        app.logger.error(f"Error resetting quota counters: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to reset quota counters',
+            'details': str(e)
+        }), 500
+
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'docs')
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md'}
 
@@ -1117,6 +1342,66 @@ def upload_document():
             return jsonify({'status': 'error', 'message': f'An error occurred: {str(e)}'}), 500
     else:
         return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
+
+@app.route('/api/upload', methods=['POST'])
+@login_required
+def upload_file():
+    """Upload a file to be used as an attachment"""
+    try:
+        # Check if the post request has the file part
+        if 'file' not in request.files:
+            return jsonify({'status': 'error', 'message': 'No file part'}), 400
+            
+        file = request.files['file']
+        
+        # If user does not select file, browser also
+        # submit an empty part without filename
+        if file.filename == '':
+            return jsonify({'status': 'error', 'message': 'No selected file'}), 400
+            
+        # Get user's attachment size limit
+        quota = db.get_user_quota(current_user.id)
+        max_size_kb = quota.get('max_attachment_size_kb', 5120)  # Default 5MB if not set
+        
+        # Check file size (convert bytes to KB)
+        file_size_kb = len(file.read()) / 1024
+        file.seek(0)  # Reset file pointer after reading
+        
+        # Skip size check for admins
+        if file_size_kb > max_size_kb and current_user.role != 'admin':
+            return jsonify({
+                'status': 'error', 
+                'message': f'File too large. Maximum size is {max_size_kb} KB ({max_size_kb/1024:.1f} MB)',
+                'size_limit_exceeded': True,
+                'max_size_kb': max_size_kb,
+                'file_size_kb': file_size_kb
+            }), 413  # Payload Too Large
+            
+        if file and allowed_file(file.filename):
+            # Create uploads directory if it doesn't exist
+            os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+            
+            # Secure the filename
+            filename = secure_filename(file.filename)
+            
+            # Generate a unique filename to avoid collisions
+            unique_filename = f"{int(time.time())}_{filename}"
+            
+            # Save the file
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            file.save(file_path)
+            
+            return jsonify({
+                'status': 'success',
+                'message': 'File uploaded successfully',
+                'filename': unique_filename,
+                'original_filename': filename
+            })
+        else:
+            return jsonify({'status': 'error', 'message': 'File type not allowed'}), 400
+    except Exception as e:
+        app.logger.error(f"Error uploading file: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @app.route('/api/chat', methods=['POST'])
 @login_required

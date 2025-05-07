@@ -11,6 +11,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Orbitron:wght@400;500;700&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/quota-modal.css">
     <style>
         /* Global styles */
         * {
@@ -2951,8 +2952,11 @@
         }
         
         /* Mobile chat title styles */
-        .mobile-chat-title {
+        .mobile-chat-info {
             display: none;
+        }
+        
+        .mobile-chat-title {
             font-size: 1.1rem;
             font-weight: 600;
             color: var(--text-primary);
@@ -2966,7 +2970,6 @@
         }
         
         .mobile-chat-model {
-            display: none;
             font-size: 0.9rem;
             font-weight: 400;
             color: var(--text-secondary);
@@ -2985,23 +2988,41 @@
                 align-items: center !important;
                 justify-content: center !important;
             }
+            
+            .mobile-chat-info {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                width: 100%;
+            }
+            
             .mobile-chat-title,
             .mobile-chat-model {
                 width: 100%;
                 max-width: 90vw;
                 text-align: center;
             }
+            
             .mobile-chat-title {
                 margin-bottom: 0.1rem;
             }
+            
             .chat-info {
                 display: none !important;
             }
-            .mobile-chat-model {
-                display: block;
-            }
         }
-        
+/* Add this to ensure mobile chat title is hidden on desktop */
+@media (min-width: 769px) {
+    .mobile-chat-info {
+        display: none !important;
+    }
+    
+    .mobile-chat-title,
+    .mobile-chat-model {
+        display: none !important;
+    }
+}
+
         /* Ensure correct theme colors for mobile header and sidebar toggle buttons */
         .mobile-header-button, #mobile-messages-button, #toggle-sidebar-btn {
             background: var(--background-secondary);
@@ -3698,8 +3719,10 @@
                 <div class="mobile-logo">
                     <img src="/static/assets/xeno.png" alt="MIDAS Logo" height="32">
                 </div>
-                <div class="mobile-chat-title" id="mobile-chat-title"></div>
-                <div class="mobile-chat-model" id="mobile-chat-model"></div>
+                <div class="mobile-chat-info" id="mobile-chat-info" style="display: none;">
+                    <div class="mobile-chat-title" id="mobile-chat-title">New Chat</div>
+                    <div class="mobile-chat-model" id="mobile-chat-model">Select a model</div>
+                </div>
             </div>
             
             <div class="header-controls">
@@ -3959,6 +3982,57 @@
                         
                         <div id="user-management-error" class="error-message" style="display: none;"></div>
                     </div>
+                    
+                    <!-- User Quota Management Section -->
+                    <div class="preference-group">
+                        <h4>User Quota Management</h4>
+                        <p class="preference-description">Configure message quotas and attachment size limits for users</p>
+                        
+                        <div id="quota-management-container">
+                            <div class="quota-selector">
+                                <label for="quota-user-select">Select User:</label>
+                                <select id="quota-user-select" class="preference-input">
+                                    <option value="" disabled selected>Select a user</option>
+                                    <!-- User options will be populated dynamically -->
+                                </select>
+                            </div>
+                            
+                            <div id="quota-settings" style="display: none;">
+                                <div class="quota-setting">
+                                    <label for="daily-message-limit">Daily Message Limit:</label>
+                                    <input type="number" id="daily-message-limit" class="preference-input" min="0" placeholder="Daily limit (e.g., 100)">
+                                    <p class="preference-description">Maximum number of messages per day (0 for unlimited)</p>
+                                </div>
+                                
+                                <div class="quota-setting">
+                                    <label for="monthly-message-limit">Monthly Message Limit:</label>
+                                    <input type="number" id="monthly-message-limit" class="preference-input" min="0" placeholder="Monthly limit (e.g., 3000)">
+                                    <p class="preference-description">Maximum number of messages per month (0 for unlimited)</p>
+                                </div>
+                                
+                                <div class="quota-setting">
+                                    <label for="max-attachment-size">Max Attachment Size (KB):</label>
+                                    <input type="number" id="max-attachment-size" class="preference-input" min="0" placeholder="Size in KB (e.g., 5120)">
+                                    <p class="preference-description">Maximum attachment size in KB (0 for no attachments, 5120 = 5MB)</p>
+                                </div>
+                                
+                                <div class="quota-usage">
+                                    <h5>Current Usage</h5>
+                                    <div id="quota-usage-stats">
+                                        <p>Daily: <span id="daily-usage">0</span> / <span id="daily-limit">0</span></p>
+                                        <p>Monthly: <span id="monthly-usage">0</span> / <span id="monthly-limit">0</span></p>
+                                    </div>
+                                </div>
+                                
+                                <div class="quota-actions">
+                                    <button id="save-quota-btn" class="primary-button">Save Quota Settings</button>
+                                    <button id="reset-quota-btn" class="secondary-button">Reset Usage Counters</button>
+                                </div>
+                                
+                                <div id="quota-update-status" class="update-status"></div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-actions">
                     <button id="save-preferences" class="primary-button">Save</button>
@@ -4127,6 +4201,44 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Quota Exceeded Modal -->
+<div id="quota-exceeded-modal" class="modal" style="display:none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div class="header-left">
+                <h3><i class="fas fa-exclamation-triangle"></i> Message Quota Exceeded</h3>
+            </div>
+            <button id="close-quota-modal" class="close-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="quota-modal-layout">
+                <div class="quota-modal-icon">
+                    <img src="/static/assets/xenostop.png" alt="Quota Exceeded" class="quota-icon" style="width: 80%; height: auto;">
+                </div>
+                <div class="quota-modal-info">
+                    <p id="quota-message" class="quota-message">You have reached your message quota limit.</p>
+                    <div id="quota-details" class="quota-details">
+                        <div class="quota-stat">
+                            <i class="fas fa-calendar-day"></i>
+                            <span>Daily usage:</span>
+                            <span id="daily-quota-usage" class="quota-value">0/0</span>
+                        </div>
+                        <div class="quota-stat">
+                            <i class="fas fa-calendar-alt"></i>
+                            <span>Monthly usage:</span>
+                            <span id="monthly-quota-usage" class="quota-value">0/0</span>
+                        </div>
+                    </div>
+                    <p class="quota-info">Please contact your administrator if you need your quota increased.</p>
+                </div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button id="confirm-quota-modal" class="primary-button">Understand</button>
+        </div>
+    </div>
+</div>
         
         <!-- Template for chat messages -->
         <template id="message-template">

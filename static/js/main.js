@@ -589,8 +589,7 @@ async function loadConversation(conversationId) {
             currentConversationId = conversationId;
             
             // Update UI with loaded conversation
-            updatePageTitle(data.conversation.title);
-            updateHeaderInfo(data.conversation.title, data.conversation.model);
+            updateChatInfo(data.conversation.title, data.conversation.model);
             
             // Set the current model
             currentModel = data.conversation.model;
@@ -893,6 +892,26 @@ function updateHeaderInfo(title, model) {
         }
     } else if (chatModelElement) {
         chatModelElement.textContent = 'Select a model';
+    }
+}
+
+// Update chat title and model for both desktop and mobile
+function updateChatInfo(title, model) {
+    // Update desktop elements
+    const desktopTitle = document.getElementById('chat-title');
+    const desktopModel = document.getElementById('chat-model');
+    if (desktopTitle) desktopTitle.textContent = title || 'New Chat';
+    if (desktopModel) desktopModel.textContent = model || 'Select a model';
+    
+    // Update mobile elements
+    const mobileTitle = document.getElementById('mobile-chat-title');
+    const mobileModel = document.getElementById('mobile-chat-model');
+    const mobileChatInfo = document.getElementById('mobile-chat-info');
+    if (mobileTitle) mobileTitle.textContent = title || 'New Chat';
+    if (mobileModel) mobileModel.textContent = model || 'Select a model';
+    if (mobileChatInfo) {
+        // Show mobile chat info when a chat is selected
+        mobileChatInfo.style.display = title ? 'block' : 'none';
     }
 }
 
@@ -1746,6 +1765,145 @@ function isImageModel(selectedModel, botDetails = null) {
     return false;
 }
 
+// Show quota exceeded modal
+function showQuotaExceededModal(quotaInfo) {
+    // Ensure quotaInfo is an object
+    quotaInfo = quotaInfo || {};
+    console.log('Quota info received:', JSON.stringify(quotaInfo, null, 2));
+    
+    const modal = document.getElementById('quota-exceeded-modal');
+    const quotaMessage = document.getElementById('quota-message');
+    const dailyQuotaUsage = document.getElementById('daily-quota-usage');
+    const monthlyQuotaUsage = document.getElementById('monthly-quota-usage');
+    const closeButton = document.getElementById('close-quota-modal');
+    const confirmButton = document.getElementById('confirm-quota-modal');
+    
+    if (!modal || !quotaMessage || !dailyQuotaUsage || !monthlyQuotaUsage) {
+        console.error('Quota modal elements not found');
+        return;
+    }
+    
+    // Check if we have the full quota info (from our debugging addition)
+    const fullQuota = quotaInfo.full_quota || {};
+    
+    // Extract all possible quota values from the response
+    // For daily values
+    let dailyUsed = 0;
+    let dailyLimit = null;
+    
+    // Try to get values from full_quota first (most accurate)
+    if (fullQuota.messages_used_today !== undefined) {
+        dailyUsed = Number(fullQuota.messages_used_today);
+    } else if (quotaInfo.daily_used !== undefined) {
+        dailyUsed = Number(quotaInfo.daily_used);
+    } else if (quotaInfo.messages_used_today !== undefined) {
+        dailyUsed = Number(quotaInfo.messages_used_today);
+    } else if (quotaInfo.reason === 'daily_limit' && quotaInfo.used !== undefined) {
+        dailyUsed = Number(quotaInfo.used);
+    }
+    
+    // Get daily limit
+    if (fullQuota.daily_message_limit !== undefined) {
+        dailyLimit = Number(fullQuota.daily_message_limit);
+    } else if (quotaInfo.reason === 'daily_limit' && quotaInfo.limit !== undefined) {
+        dailyLimit = Number(quotaInfo.limit);
+    } else if (quotaInfo.daily_limit !== undefined) {
+        dailyLimit = Number(quotaInfo.daily_limit);
+    } else if (quotaInfo.daily_message_limit !== undefined) {
+        dailyLimit = Number(quotaInfo.daily_message_limit);
+    }
+    
+    // For monthly values
+    let monthlyUsed = 0;
+    let monthlyLimit = null;
+    
+    // Try to get values from full_quota first (most accurate)
+    if (fullQuota.messages_used_month !== undefined) {
+        monthlyUsed = Number(fullQuota.messages_used_month);
+    } else if (quotaInfo.monthly_used !== undefined) {
+        monthlyUsed = Number(quotaInfo.monthly_used);
+    } else if (quotaInfo.messages_used_month !== undefined) {
+        monthlyUsed = Number(quotaInfo.messages_used_month);
+    } else if (quotaInfo.reason === 'monthly_limit' && quotaInfo.used !== undefined) {
+        monthlyUsed = Number(quotaInfo.used);
+    }
+    
+    // Get monthly limit
+    if (fullQuota.monthly_message_limit !== undefined) {
+        monthlyLimit = Number(fullQuota.monthly_message_limit);
+    } else if (quotaInfo.reason === 'monthly_limit' && quotaInfo.limit !== undefined) {
+        monthlyLimit = Number(quotaInfo.limit);
+    } else if (quotaInfo.monthly_limit !== undefined) {
+        monthlyLimit = Number(quotaInfo.monthly_limit);
+    } else if (quotaInfo.monthly_message_limit !== undefined) {
+        monthlyLimit = Number(quotaInfo.monthly_message_limit);
+    }
+    
+    // Handle null/zero values for limits
+    if (dailyLimit === 0 || isNaN(dailyLimit) || dailyLimit === null || dailyLimit === undefined) {
+        dailyLimit = null; // Set to null for unlimited
+    }
+    
+    if (monthlyLimit === 0 || isNaN(monthlyLimit) || monthlyLimit === null || monthlyLimit === undefined) {
+        monthlyLimit = null; // Set to null for unlimited
+    }
+    
+    console.log('Processed values:', {
+        dailyUsed, dailyLimit, monthlyUsed, monthlyLimit,
+        dailyLimitType: typeof dailyLimit,
+        monthlyLimitType: typeof monthlyLimit
+    });
+    
+    // Set quota message based on reason
+    if (quotaInfo.reason === 'daily_limit') {
+        const limitDisplay = dailyLimit === null ? '∞' : dailyLimit;
+        quotaMessage.textContent = `You've reached your daily message limit (${dailyUsed}/${limitDisplay}). Please try again tomorrow.`;
+    } else if (quotaInfo.reason === 'monthly_limit') {
+        const limitDisplay = monthlyLimit === null ? '∞' : monthlyLimit;
+        quotaMessage.textContent = `You've reached your monthly message limit (${monthlyUsed}/${limitDisplay}). Please try again next month.`;
+    } else {
+        quotaMessage.textContent = 'You have exceeded your message quota.';
+    }
+    
+    // Display the quota values
+    // For daily limit
+    if (dailyLimit === null) {
+        dailyQuotaUsage.textContent = `${dailyUsed}/∞`;
+    } else {
+        dailyQuotaUsage.textContent = `${dailyUsed}/${dailyLimit}`;
+    }
+    
+    // For monthly limit
+    if (monthlyLimit === null) {
+        monthlyQuotaUsage.textContent = `${monthlyUsed}/∞`;
+    } else {
+        monthlyQuotaUsage.textContent = `${monthlyUsed}/${monthlyLimit}`;
+    }
+    
+    // Show the modal
+    modal.style.display = 'flex';
+    
+    // Add event listeners to close the modal
+    if (closeButton) {
+        closeButton.onclick = () => {
+            modal.style.display = 'none';
+        };
+    }
+    
+    if (confirmButton) {
+        confirmButton.onclick = () => {
+            modal.style.display = 'none';
+        };
+    }
+    
+    // Close when clicking outside the modal content
+    modal.onclick = (event) => {
+        if (event.target === modal) {
+            modal.style.display = 'none';
+        }
+    };
+}
+
 // Send message
 async function sendMessage() {
     const message = messageInput.value.trim();
@@ -1958,7 +2116,7 @@ async function sendMessage() {
                             updatePageTitle(titleData.title);
                             updateHeaderInfo(titleData.title, selectedModel);
                             
-                            // Refresh the conversation list to show the new title
+                            // Reload conversations to show new title
                             loadConversations(true);
                         } else {
                             console.error("Image title generation failed:", titleData);
@@ -2026,6 +2184,44 @@ async function sendMessage() {
                 attachment_filename: sentAttachmentFilename // Send attached filename
             })
         });
+        
+        // Check if response is not ok (error)
+        if (!response.ok) {
+            const errorData = await response.json();
+            console.error('Error generating response:', errorData);
+            
+            // Check if the error is due to quota exceeded
+            if (errorData.quota_exceeded) {
+                // Don't remove the user message, keep it in the chat
+                
+                // Create a quota exceeded message for the chat
+                const quotaInfo = errorData.quota_info || {};
+                let quotaMessage = 'Message quota exceeded. ';
+                
+                // Add specific reason if available
+                if (quotaInfo.reason === 'daily_limit') {
+                    quotaMessage += `You've reached your daily message limit (${quotaInfo.used || 0}/${quotaInfo.limit || 0}).`;
+                } else if (quotaInfo.reason === 'monthly_limit') {
+                    quotaMessage += `You've reached your monthly message limit (${quotaInfo.used || 0}/${quotaInfo.limit || 0}).`;
+                }
+                
+                // Add the message to the chat
+                addMessage(quotaMessage, false, 'system');
+                
+                // Show quota exceeded modal
+                showQuotaExceededModal(quotaInfo);
+                
+                isGenerating = false;
+                updateSendButtonState();
+                return;
+            } else {
+                // Handle other errors
+                addMessage(`Error: ${errorData.message || 'Failed to generate response'}`, false, 'system');
+                isGenerating = false;
+                updateSendButtonState();
+                return;
+            }
+        }
         
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
@@ -2630,7 +2826,7 @@ function initializePreferences() {
     
     // Close modal when clicking outside
     preferencesModal.addEventListener('click', function(event) {
-        if (event.target === preferencesModal) {
+        if (event.target === preferencesModal && confirm("Are you sure you want to close without saving?")) {
             preferencesModal.style.display = 'none';
         }
     });
@@ -3040,7 +3236,7 @@ function initializeBotManagement() {
     
     // Close modal when clicking outside
     botManagementModal.addEventListener('click', function(event) {
-        if (event.target === botManagementModal) {
+        if (event.target === botManagementModal && confirm("Are you sure you want to close the bot management panel?")) {
             botManagementModal.style.display = 'none';
         }
     });
@@ -3928,13 +4124,6 @@ function setupMobileResponsiveness() {
             if (isMobile() && sidebar && !sidebar.classList.contains('sidebar-collapsed')) {
                 const overlay = document.createElement('div');
                 overlay.className = 'mobile-sidebar-overlay';
-                overlay.style.position = 'fixed';
-                overlay.style.top = '0';
-                overlay.style.left = '0';
-                overlay.style.right = '0';
-                overlay.style.bottom = '0';
-                overlay.style.background = 'rgba(0,0,0,0.5)';
-                overlay.style.zIndex = '15';
                 document.body.appendChild(overlay);
                 
                 overlay.addEventListener('click', function() {
@@ -4581,6 +4770,23 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize all components
     initializeSidebarModelSelector();
     handleInitialLoading();
+    
+    // Initialize quota exceeded modal close button
+    const closeQuotaModal = document.getElementById('close-quota-modal');
+    const confirmQuotaModal = document.getElementById('confirm-quota-modal');
+    const quotaExceededModal = document.getElementById('quota-exceeded-modal');
+    
+    if (closeQuotaModal && quotaExceededModal) {
+        closeQuotaModal.addEventListener('click', function() {
+            quotaExceededModal.style.display = 'none';
+        });
+    }
+    
+    if (confirmQuotaModal && quotaExceededModal) {
+        confirmQuotaModal.addEventListener('click', function() {
+            quotaExceededModal.style.display = 'none';
+        });
+    }
 });
 
 // Control initial loading screen

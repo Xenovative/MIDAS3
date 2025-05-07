@@ -1,0 +1,243 @@
+/* User management table styles */
+.user-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+    table-layout: fixed; /* This helps maintain column widths */
+}
+
+.user-table th, .user-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.user-table th {
+    background-color: var(--bg-secondary);
+    font-weight: 500;
+}
+
+/* Column width settings */
+.user-table th:nth-child(1), .user-table td:nth-child(1) { /* Username */
+    width: 15%;
+}
+.user-table th:nth-child(2), .user-table td:nth-child(2) { /* Display Name */
+    width: 20%;
+}
+.user-table th:nth-child(3), .user-table td:nth-child(3) { /* Role */
+    width: 15%;
+    min-width: 120px;
+}
+.user-table th:nth-child(4), .user-table td:nth-child(4) { /* Message Quota */
+    width: 15%;
+}
+.user-table th:nth-child(5), .user-table td:nth-child(5) { /* Attachment Size */
+    width: 15%;
+}
+.user-table th:nth-child(6), .user-table td:nth-child(6) { /* Actions */
+    width: 20%;
+}
+
+.user-role-select, .quota-input, .size-input {
+    padding: 0.5rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    width: 100%;
+}
+
+.user-role-select {
+    min-width: 100px;
+}
+
+.quota-input, .size-input {
+    max-width: 100px;
+}
+
+.user-action-button {
+    padding: 0.5rem 0.75rem;
+    margin-right: 0.5rem;
+    border: none;
+    border-radius: 4px;
+    background-color: var(--bg-accent);
+    color: var(--text-on-accent);
+    cursor: pointer;
+    font-size: 0.875rem;
+    transition: background-color 0.2s ease;
+}
+
+.user-action-button:hover {
+    opacity: 0.9;
+}
+
+.user-action-button.save-limits {
+    background-color: #4CAF50;
+    color: white;
+}
+
+.user-action-button.delete {
+    background-color: #f44336;
+    color: white;
+}
+
+.inline-password-form {
+    padding: 1rem;
+    background-color: var(--bg-secondary);
+    border-radius: 4px;
+    margin: 0.5rem 0;
+}
+
+.pwd-status {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.pwd-status.error {
+    color: #f44336;
+}
+
+.pwd-status.success {
+    color: #4CAF50;
+}
+
+/* Make the preferences modal wider */
+.preferences-modal-content {
+    width: 90% !important;
+    max-width: 1000px !important;
+}
+
+/* User details modal styles */
+.user-details-modal-content {
+    width: 90% !important;
+    max-width: 900px !important;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.close-button {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+}
+
+.close-button:hover {
+    color: var(--text-primary);
+}
+
+.user-info-section,
+.user-quota-section,
+.user-conversations-section {
+    margin-bottom: 2rem;
+    padding: 1rem;
+    background-color: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+.user-info-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.info-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.info-value {
+    font-weight: 500;
+}
+
+.quota-usage-container {
+    margin-top: 1rem;
+}
+
+.quota-item {
+    margin-bottom: 1rem;
+}
+
+.quota-label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.quota-value {
+    font-weight: 500;
+    margin-bottom: 0.5rem;
+}
+
+.quota-progress {
+    height: 8px;
+    background-color: var(--bg-primary);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    height: 100%;
+    background-color: var(--bg-accent);
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.conversations-list {
+    margin-top: 1rem;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.conversation-item {
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.conversation-item:last-child {
+    border-bottom: none;
+}
+
+.conversation-title {
+    font-weight: 500;
+}
+
+.conversation-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
+.empty-state {
+    padding: 2rem;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+/* Make user rows clickable */
+#user-list tr {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+#user-list tr:hover {
+    background-color: var(--bg-hover);
+}

@@ -73,6 +73,21 @@ def init_db():
     )
     ''')
     
+    # Create user_quotas table for storing message quotas and attachment limits
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS user_quotas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL UNIQUE,
+        daily_message_limit INTEGER DEFAULT 100,
+        monthly_message_limit INTEGER DEFAULT 3000,
+        max_attachment_size_kb INTEGER DEFAULT 5120,
+        messages_used_today INTEGER DEFAULT 0,
+        messages_used_month INTEGER DEFAULT 0,
+        last_reset_date DATE DEFAULT CURRENT_DATE,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+    )
+    ''')
+    
     conn.commit()
     conn.close()
 
@@ -394,14 +409,26 @@ def get_user_by_username(username):
     return dict(user) if user else None
 
 def get_user_by_id(user_id):
-    """Retrieve a user by id."""
+    """Get a user by ID"""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM users WHERE id = ?', (user_id,))
-    user = cursor.fetchone()
-    conn.close()
-    return dict(user) if user else None
+    try:
+        cursor.execute('SELECT id, username, password_hash, role, created_at FROM users WHERE id = ?', (user_id,))
+        user = cursor.fetchone()
+        
+        if user:
+            # Convert to dict
+            user_dict = dict(user)
+            # Add display_name field for compatibility with frontend
+            user_dict['display_name'] = user_dict['username']
+            return user_dict
+        return None
+    except Exception as e:
+        print(f"Error getting user by ID: {e}")
+        return None
+    finally:
+        conn.close()
 
 def update_user_display_name(user_id, display_name):
     """Update a user's display name."""
@@ -453,8 +480,11 @@ def get_all_users():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     try:
-        cursor.execute('SELECT id, username, display_name, role, created_at FROM users ORDER BY id')
+        cursor.execute('SELECT id, username, role, created_at FROM users ORDER BY id')
         users = [dict(row) for row in cursor.fetchall()]
+        # Add display_name field for compatibility with frontend
+        for user in users:
+            user['display_name'] = user['username']
         return users
     except Exception as e:
         print(f"Error getting all users: {e}")
@@ -493,6 +523,221 @@ def delete_user(user_id):
         return cursor.rowcount > 0
     except Exception as e:
         print(f"Error deleting user: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+# --- User Quota Management Functions ---
+
+def get_user_quota(user_id):
+    """Get quota information for a user"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    try:
+        # First check if the user has a quota record
+        cursor.execute('SELECT * FROM user_quotas WHERE user_id = ?', (user_id,))
+        quota = cursor.fetchone()
+        
+        # If no quota record exists, create one with default values
+        if not quota:
+            cursor.execute('''
+                INSERT INTO user_quotas 
+                (user_id, daily_message_limit, monthly_message_limit, max_attachment_size_kb, 
+                messages_used_today, messages_used_month, last_reset_date)
+                VALUES (?, 100, 3000, 5120, 0, 0, CURRENT_DATE)
+            ''', (user_id,))
+            conn.commit()
+            
+            # Fetch the newly created record
+            cursor.execute('SELECT * FROM user_quotas WHERE user_id = ?', (user_id,))
+            quota = cursor.fetchone()
+        
+        # Convert to dict
+        quota_dict = dict(quota) if quota else {}
+        
+        # Reset counters if needed
+        reset_quotas_if_needed(user_id, quota_dict)
+        
+        return quota_dict
+    except Exception as e:
+        print(f"Error getting user quota: {e}")
+        return None
+    finally:
+        conn.close()
+
+def update_user_quota(user_id, daily_limit=None, monthly_limit=None, max_attachment_size=None):
+    """Update quota settings for a user"""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row  # Set row_factory for the connection
+    cursor = conn.cursor()
+    
+    try:
+        # Check if user has a quota record
+        cursor.execute('SELECT id FROM user_quotas WHERE user_id = ?', (user_id,))
+        quota = cursor.fetchone()
+        
+        if quota:
+            # Update existing record
+            update_fields = []
+            params = []
+            
+            if daily_limit is not None:
+                update_fields.append('daily_message_limit = ?')
+                params.append(daily_limit)
+            
+            if monthly_limit is not None:
+                update_fields.append('monthly_message_limit = ?')
+                params.append(monthly_limit)
+            
+            if max_attachment_size is not None:
+                update_fields.append('max_attachment_size_kb = ?')
+                params.append(max_attachment_size)
+            
+            if update_fields:
+                query = f"UPDATE user_quotas SET {', '.join(update_fields)} WHERE user_id = ?"
+                params.append(user_id)
+                cursor.execute(query, params)
+                conn.commit()
+                
+                # Fetch the updated record
+                cursor.execute('SELECT * FROM user_quotas WHERE user_id = ?', (user_id,))
+                updated_quota = cursor.fetchone()
+                if updated_quota:
+                    return dict(updated_quota)
+                return None
+        else:
+            # Create new record with specified values
+            daily_limit = daily_limit if daily_limit is not None else 100
+            monthly_limit = monthly_limit if monthly_limit is not None else 3000
+            max_attachment_size = max_attachment_size if max_attachment_size is not None else 5120
+            
+            cursor.execute('''
+                INSERT INTO user_quotas 
+                (user_id, daily_message_limit, monthly_message_limit, max_attachment_size_kb, 
+                messages_used_today, messages_used_month, last_reset_date)
+                VALUES (?, ?, ?, ?, 0, 0, CURRENT_DATE)
+            ''', (user_id, daily_limit, monthly_limit, max_attachment_size))
+            conn.commit()
+            
+            # Fetch the newly created record
+            cursor.execute('SELECT * FROM user_quotas WHERE user_id = ?', (user_id,))
+            new_quota = cursor.fetchone()
+            if new_quota:
+                return dict(new_quota)
+            return None
+            
+        return False
+    except Exception as e:
+        print(f"Error updating user quota: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def increment_user_message_count(user_id):
+    """Increment the message count for a user"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # Get current quota
+        quota = get_user_quota(user_id)
+        if not quota:
+            return False
+        
+        # Reset counters if needed
+        reset_quotas_if_needed(user_id, quota)
+        
+        # Increment message counts
+        cursor.execute('''
+            UPDATE user_quotas 
+            SET messages_used_today = messages_used_today + 1,
+                messages_used_month = messages_used_month + 1
+            WHERE user_id = ?
+        ''', (user_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error incrementing message count: {e}")
+        conn.rollback()
+        return False
+    finally:
+        conn.close()
+
+def check_user_quota(user_id):
+    """Check if a user has exceeded their quota"""
+    quota = get_user_quota(user_id)
+    if not quota:
+        # If no quota info, default to allowing messages
+        return {"allowed": True, "reason": None}
+    
+    # Check daily limit
+    if quota['messages_used_today'] >= quota['daily_message_limit']:
+        return {
+            "allowed": False, 
+            "reason": "daily_limit",
+            "limit": quota['daily_message_limit'],
+            "used": quota['messages_used_today']
+        }
+    
+    # Check monthly limit
+    if quota['messages_used_month'] >= quota['monthly_message_limit']:
+        return {
+            "allowed": False, 
+            "reason": "monthly_limit",
+            "limit": quota['monthly_message_limit'],
+            "used": quota['messages_used_month']
+        }
+    
+    # User is within quota
+    return {
+        "allowed": True,
+        "daily_limit": quota['daily_message_limit'],
+        "daily_used": quota['messages_used_today'],
+        "monthly_limit": quota['monthly_message_limit'],
+        "monthly_used": quota['messages_used_month'],
+        "max_attachment_size_kb": quota['max_attachment_size_kb']
+    }
+
+def reset_quotas_if_needed(user_id, quota=None):
+    """Reset daily and monthly quotas if needed"""
+    if quota is None:
+        quota = get_user_quota(user_id)
+        if not quota:
+            return False
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        last_reset = datetime.strptime(quota['last_reset_date'], '%Y-%m-%d').date()
+        today = datetime.now().date()
+        
+        updates = []
+        params = []
+        
+        # Reset daily count if it's a new day
+        if today > last_reset:
+            updates.append("messages_used_today = 0")
+            updates.append("last_reset_date = CURRENT_DATE")
+        
+        # Reset monthly count if it's a new month
+        if today.month != last_reset.month or today.year != last_reset.year:
+            updates.append("messages_used_month = 0")
+        
+        if updates:
+            query = f"UPDATE user_quotas SET {', '.join(updates)} WHERE user_id = ?"
+            params.append(user_id)
+            cursor.execute(query, params)
+            conn.commit()
+            return True
+            
+        return False
+    except Exception as e:
+        print(f"Error resetting quotas: {e}")
         conn.rollback()
         return False
     finally:
