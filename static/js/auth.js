@@ -162,28 +162,128 @@ document.addEventListener('DOMContentLoaded', async function() {
     // Set up auth UI event listeners
     const showLogin = document.getElementById('show-login');
     const showRegister = document.getElementById('show-register');
-    const closeAuthModal = document.getElementById('close-auth-modal');
-    const authOverlay = document.getElementById('auth-overlay');
     const loginForm = document.getElementById('login-form');
     const registerForm = document.getElementById('register-form');
+    const registerUsernameInput = document.getElementById('register-username');
+    const registerPasswordInput = document.getElementById('register-password');
+    const loginError = document.getElementById('login-error');
+    const registerError = document.getElementById('register-error');
+    const authOverlay = document.getElementById('auth-overlay');
+    const authModal = document.getElementById('auth-modal');
+    const closeAuthModal = document.getElementById('close-auth-modal');
     const logoutBtn = document.getElementById('logout-btn');
-    
-    // User profile update elements
-    const displayNameInput = document.getElementById('display-name');
-    const currentPasswordInput = document.getElementById('current-password');
-    const newPasswordInput = document.getElementById('new-password');
-    const confirmPasswordInput = document.getElementById('confirm-password');
     const savePreferencesBtn = document.getElementById('save-preferences');
-    const passwordUpdateStatus = document.getElementById('password-update-status');
-    
-    // Admin tab elements
-    const userManagementLoading = document.getElementById('user-management-loading');
-    const userListContainer = document.getElementById('user-list-container');
+    const savePasswordBtn = document.getElementById('save-password-btn');
+    const saveQuotaBtn = document.getElementById('save-quota-btn');
+    const resetQuotaBtn = document.getElementById('reset-quota-btn');
+    const quotaUserSelect = document.getElementById('quota-user-select');
     const userList = document.getElementById('user-list');
+    const userListContainer = document.getElementById('user-list-container');
     const userManagementError = document.getElementById('user-management-error');
+    const userManagementLoading = document.getElementById('user-management-loading');
+    const displayNameInput = document.getElementById('display-name');
+    const userEmailInput = document.getElementById('user-email');
+    const saveUserInfoBtn = document.getElementById('save-user-info-btn');
+    const userInfoUpdateStatus = document.getElementById('user-info-update-status');
+    
+    // Terms and Privacy Policy elements
+    const termsLink = document.getElementById('terms-link');
+    const privacyLink = document.getElementById('privacy-link');
+    const termsModal = document.getElementById('terms-modal');
+    const privacyModal = document.getElementById('privacy-modal');
+    const closeTermsModal = document.getElementById('close-terms-modal');
+    const closePrivacyModal = document.getElementById('close-privacy-modal');
     
     // Initialize quota management
     initQuotaManagement();
+    
+    // Terms and Privacy Policy modal handlers
+    if (termsLink) {
+        termsLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (termsModal) {
+                termsModal.style.display = 'flex';
+                document.body.style.overflow = 'hidden'; // Prevent scrolling behind modal
+            }
+        });
+    }
+    
+    if (privacyLink) {
+        privacyLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            if (privacyModal) {
+                privacyModal.style.display = 'flex';
+                document.body.style.overflow = 'hidden'; // Prevent scrolling behind modal
+            }
+        });
+    }
+    
+    // Handle close buttons for modals
+    if (closeTermsModal) {
+        closeTermsModal.addEventListener('click', function() {
+            if (termsModal) {
+                termsModal.style.display = 'none';
+                document.body.style.overflow = ''; // Restore scrolling
+            }
+        });
+    }
+    
+    if (closePrivacyModal) {
+        closePrivacyModal.addEventListener('click', function() {
+            if (privacyModal) {
+                privacyModal.style.display = 'none';
+                document.body.style.overflow = ''; // Restore scrolling
+            }
+        });
+    }
+    
+    // Handle 'I Understand' buttons
+    const termsAcceptBtn = document.getElementById('terms-accept-btn');
+    const privacyAcceptBtn = document.getElementById('privacy-accept-btn');
+    
+    if (termsAcceptBtn) {
+        termsAcceptBtn.addEventListener('click', function() {
+            if (termsModal) {
+                termsModal.style.display = 'none';
+                document.body.style.overflow = ''; // Restore scrolling
+                
+                // Auto-check the terms checkbox when user clicks 'I Understand'
+                const termsCheckbox = document.getElementById('terms-checkbox');
+                if (termsCheckbox) {
+                    termsCheckbox.checked = true;
+                }
+            }
+        });
+    }
+    
+    if (privacyAcceptBtn) {
+        privacyAcceptBtn.addEventListener('click', function() {
+            if (privacyModal) {
+                privacyModal.style.display = 'none';
+                document.body.style.overflow = ''; // Restore scrolling
+                
+                // Auto-check the terms checkbox when user clicks 'I Understand'
+                const termsCheckbox = document.getElementById('terms-checkbox');
+                if (termsCheckbox) {
+                    termsCheckbox.checked = true;
+                }
+            }
+        });
+    }
+    
+    // Close modals when clicking outside of them
+    window.addEventListener('click', function(event) {
+        if (event.target.classList.contains('modal-overlay')) {
+            if (termsModal && termsModal.style.display === 'flex') {
+                termsModal.style.display = 'none';
+                document.body.style.overflow = '';
+            }
+            if (privacyModal && privacyModal.style.display === 'flex') {
+                privacyModal.style.display = 'none';
+                document.body.style.overflow = '';
+            }
+        }
+    });
     
     // When the user tab is shown, populate the display name field
     document.querySelectorAll('.tab-button').forEach(button => {
@@ -192,8 +292,9 @@ document.addEventListener('DOMContentLoaded', async function() {
             console.log(`Tab clicked: ${tabName}, auth state:`, authState);
             
             if (tabName === 'user' && authState.logged_in) {
-                // Populate display name field with current value
+                // Populate display name and email fields with current values
                 displayNameInput.value = authState.display_name || authState.username;
+                userEmailInput.value = authState.email || '';
             } else if (tabName === 'admin' && authState.logged_in && authState.role === 'admin') {
                 console.log('Admin tab clicked, loading user list...');
                 // Load user list when admin tab is clicked
@@ -201,6 +302,74 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
         });
     });
+    
+    // Add event listener for save user info button
+    if (saveUserInfoBtn) {
+        saveUserInfoBtn.addEventListener('click', async function() {
+            // Clear previous status
+            if (userInfoUpdateStatus) {
+                userInfoUpdateStatus.textContent = '';
+                userInfoUpdateStatus.className = 'update-status';
+            }
+            
+            const displayName = displayNameInput.value.trim();
+            const email = userEmailInput.value.trim();
+            
+            if (!displayName) {
+                userInfoUpdateStatus.textContent = 'Display name cannot be empty';
+                userInfoUpdateStatus.className = 'update-status error';
+                return;
+            }
+            
+            if (email && !isValidEmail(email)) {
+                userInfoUpdateStatus.textContent = 'Please enter a valid email address';
+                userInfoUpdateStatus.className = 'update-status error';
+                return;
+            }
+            
+            try {
+                userInfoUpdateStatus.textContent = 'Saving changes...';
+                
+                const response = await fetch(`/api/users/${authState.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        display_name: displayName,
+                        email: email
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    userInfoUpdateStatus.textContent = 'Changes saved successfully';
+                    userInfoUpdateStatus.className = 'update-status success';
+                    
+                    // Update auth state with new values
+                    authState.display_name = displayName;
+                    authState.email = email;
+                    
+                    // Update UI
+                    updateAuthUI();
+                } else {
+                    userInfoUpdateStatus.textContent = result.message || 'Failed to save changes';
+                    userInfoUpdateStatus.className = 'update-status error';
+                }
+            } catch (error) {
+                console.error('Error saving user info:', error);
+                userInfoUpdateStatus.textContent = 'Error saving changes';
+                userInfoUpdateStatus.className = 'update-status error';
+            }
+        });
+    }
+    
+    // Helper function to validate email
+    function isValidEmail(email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    }
     
     // Function to load the user list for admin
     async function loadUserList() {
@@ -249,6 +418,11 @@ document.addEventListener('DOMContentLoaded', async function() {
                         const displayNameCell = document.createElement('td');
                         displayNameCell.textContent = user.display_name || user.username;
                         row.appendChild(displayNameCell);
+                        
+                        // Email cell
+                        const emailCell = document.createElement('td');
+                        emailCell.textContent = user.email || 'N/A';
+                        row.appendChild(emailCell);
                         
                         // Role cell with dropdown for editing
                         const roleCell = document.createElement('td');
@@ -463,7 +637,16 @@ document.addEventListener('DOMContentLoaded', async function() {
             // Get the active tab
             const activeTab = document.querySelector('.tab-button.active').getAttribute('data-tab');
             
-            // If we're on the user tab, handle profile updates
+            // For models and appearance tabs, use the original handler from main.js
+            if (activeTab === 'models' || activeTab === 'appearance') {
+                if (window.savePreferences) {
+                    window.savePreferences();
+                    return;
+                }
+            }
+            
+            // If we're on the user tab, handle password updates only
+            // (display name and email are handled by the new save-user-info-btn)
             if (activeTab === 'user') {
                 e.preventDefault();
                 
@@ -475,11 +658,6 @@ document.addEventListener('DOMContentLoaded', async function() {
                 
                 const updateData = {};
                 let hasPasswordUpdate = false;
-                
-                // Check if we're updating the display name
-                if (displayNameInput && displayNameInput.value.trim()) {
-                    updateData.display_name = displayNameInput.value.trim();
-                }
                 
                 // Check if we're updating the password
                 if (currentPasswordInput && currentPasswordInput.value &&
@@ -621,22 +799,25 @@ document.addEventListener('DOMContentLoaded', async function() {
         const strengthLabel = document.getElementById('strength-label');
         const strengthRequirements = document.getElementById('strength-requirements');
         
-        // Show/hide password requirements tooltip
         if (passwordInfoIcon && passwordTooltip) {
             passwordInfoIcon.addEventListener('mouseenter', function() {
-                passwordTooltip.style.display = 'block';
+                if (passwordTooltip) {
+                    passwordTooltip.style.display = 'block';
+                }
             });
             
             passwordInfoIcon.addEventListener('mouseleave', function() {
-                passwordTooltip.style.display = 'none';
+                if (passwordTooltip) {
+                    passwordTooltip.style.display = 'none';
+                }
             });
             
-            // Also allow clicking to toggle
+            // Also handle click for mobile devices
             passwordInfoIcon.addEventListener('click', function() {
-                if (passwordTooltip.style.display === 'none') {
-                    passwordTooltip.style.display = 'block';
-                } else {
+                if (passwordTooltip.style.display === 'block') {
                     passwordTooltip.style.display = 'none';
+                } else {
+                    passwordTooltip.style.display = 'block';
                 }
             });
         }
@@ -680,8 +861,14 @@ document.addEventListener('DOMContentLoaded', async function() {
             }
             
             // Update UI elements
+            // Make sure the width is set properly for the strength fill
             fill.style.width = (score * 20) + '%';
             fill.style.backgroundColor = color;
+            
+            // Ensure the bar is visible even when score is 0
+            if (score === 0) {
+                fill.style.width = '1%';
+            }
             
             if (strengthLabel) {
                 strengthLabel.textContent = strength;
@@ -720,7 +907,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         registerForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             const username = registerUsernameInput.value.trim();
+            const email = document.getElementById('register-email').value.trim();
             const password = registerPasswordInput.value;
+            const termsChecked = document.getElementById('terms-checkbox').checked;
+            
             // --- Username validation ---
             if (username.length < 3 || username.length > 32) {
                 registerError.textContent = 'Username must be between 3 and 32 characters.';
@@ -730,6 +920,17 @@ document.addEventListener('DOMContentLoaded', async function() {
                 registerError.textContent = 'Username can only contain letters, numbers, and underscores.';
                 return;
             }
+            
+            // --- Email validation ---
+            if (!email) {
+                registerError.textContent = 'Email address is required.';
+                return;
+            }
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                registerError.textContent = 'Please enter a valid email address.';
+                return;
+            }
+            
             // --- Password validation ---
             if (password.length < 8) {
                 registerError.textContent = 'Password must be at least 8 characters.';
@@ -740,12 +941,19 @@ document.addEventListener('DOMContentLoaded', async function() {
                 registerError.textContent = 'Password is too weak. Use uppercase, lowercase, numbers, and symbols.';
                 return;
             }
+            
+            // --- Terms validation ---
+            if (!termsChecked) {
+                registerError.textContent = 'You must agree to the Terms and Conditions and Privacy Policy.';
+                return;
+            }
+            
             // --- Proceed with registration ---
             try {
                 const res = await fetch('/register', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ username, email, password })
                 });
                 const data = await res.json();
                 if (data.status === 'success') {

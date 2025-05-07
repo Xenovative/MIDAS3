@@ -313,7 +313,35 @@ async function loadModels() {
             const systemModelsGroup = document.createElement('optgroup');
             systemModelsGroup.label = '⚙️ System Models';
             
-            modelsData.models.forEach(model => {
+            // Filter models based on visible_models preference if available
+            let visibleModels = [];
+            if (userPreferences && userPreferences.visible_models && userPreferences.visible_models.length > 0) {
+                visibleModels = userPreferences.visible_models;
+                console.log('Visible models from preferences:', visibleModels);
+            }
+            
+            // Log all available models from API
+            console.log('All models from API:', modelsData.models.map(model => 
+                typeof model === 'object' ? model.name : model
+            ));
+            
+            // Use either the filtered list or all models
+            const modelsToDisplay = visibleModels.length > 0 
+                ? modelsData.models.filter(model => {
+                    const modelName = typeof model === 'object' ? model.name || model.id : model;
+                    const isVisible = visibleModels.includes(modelName);
+                    if (!isVisible && modelName.includes('mistral-small')) {
+                        console.log(`Model ${modelName} is in preferences but filtered out`);
+                    }
+                    return isVisible;
+                })
+                : modelsData.models;
+                
+            console.log('Models to display:', modelsToDisplay.map(model => 
+                typeof model === 'object' ? model.name : model
+            ));
+            
+            modelsToDisplay.forEach(model => {
                 const option = document.createElement('option');
                 
                 // Handle both string models and object models
@@ -2890,6 +2918,71 @@ function initializePreferences() {
     initializeTheme();
 }
 
+// Function to save user preferences
+async function savePreferences() {
+    const defaultModel = document.getElementById('default-model').value;
+    const defaultEmbeddingModel = document.getElementById('default-embedding-model').value;
+    const visibleModelsCheckboxes = document.querySelectorAll('#visible-models-list input[type="checkbox"]');
+    const themeSelect = document.getElementById('theme-select');
+    const showThinking = document.getElementById('show-thinking').checked;
+
+    // Get visible models from checkboxes
+    const visibleModels = Array.from(visibleModelsCheckboxes)
+        .filter(cb => cb.checked)
+        .map(cb => cb.value);
+
+    // Get theme from select
+    const theme = themeSelect ? themeSelect.value : 'system';
+
+    // Prepare the preferences object
+    const updatedPreferences = {
+        default_model: defaultModel || null,
+        default_embedding_model: defaultEmbeddingModel,
+        visible_models: visibleModels,
+        theme: theme,
+        show_thinking: showThinking
+    };
+
+    try {
+        const response = await fetch('/api/preferences', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(updatedPreferences)
+        });
+
+        const data = await response.json();
+        if (data.status === 'success') {
+            // Update local preferences
+            userPreferences = updatedPreferences;
+            // Close the modal
+            document.getElementById('preferences-modal').style.display = 'none';
+            // Apply theme
+            applyTheme(theme);
+            // Show success message
+            showNotification('Preferences saved successfully', 'success');
+            
+            // Reload preferences to update UI
+            await loadPreferences();
+            
+            // Reload models to update dropdown
+            await loadModels();
+            
+            // Apply new default model if set
+            if (updatedPreferences.default_model && modelSelect) {
+                modelSelect.value = updatedPreferences.default_model;
+                currentModel = updatedPreferences.default_model;
+            }
+        } else {
+            throw new Error(data.message || 'Failed to save preferences');
+        }
+    } catch (error) {
+        console.error('Error saving preferences:', error);
+        showNotification('Failed to save preferences: ' + error.message, 'error');
+    }
+}
+
 // Function to load preferences from the server
 async function loadPreferences() {
     try {
@@ -3027,7 +3120,8 @@ function populatePreferencesUI() {
 }
 
 // Function to save preferences to the server
-async function savePreferences() {
+// Make it globally accessible so it can be called from auth.js
+window.savePreferences = async function() {
     try {
         // Get values from UI
         const defaultModel = document.getElementById('default-model').value;

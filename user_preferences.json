@@ -9,5 +9,20 @@
     "llama3.1:8b",
     "codellama:latest"
   ],
-  "theme": "system"
+  "theme": "system",
+  "1": {
+    "default_model": "llama3.1:8b",
+    "default_embedding_model": "mxbai-embed-large:latest",
+    "visible_models": [
+      "mistral-small3.1:latest",
+      "mannix/llama3.1-8b-abliterated:latest",
+      "deepseek-r1:7b",
+      "phi3.5:latest",
+      "mistral:latest",
+      "llama3.1:8b",
+      "codellama:latest"
+    ],
+    "theme": "system",
+    "show_thinking": false
+  }
 }

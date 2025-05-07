@@ -69,6 +69,7 @@ def init_db():
         username TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'user',
+        email TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
     ''')
@@ -381,15 +382,24 @@ def delete_conversation_document(document_id):
 
 # --- User Management Functions ---
 
-def create_user(username, password_hash, role='user'):
-    """Create a new user with a hashed password and role."""
+def create_user(username, password_hash, role='user', email=None):
+    """Create a new user with a hashed password, role, and optional email."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     try:
+        # Check if email column exists, add it if it doesn't
+        try:
+            cursor.execute("SELECT email FROM users LIMIT 1")
+        except sqlite3.OperationalError:
+            # Add email column if it doesn't exist
+            cursor.execute("ALTER TABLE users ADD COLUMN email TEXT")
+            conn.commit()
+            print("Added email column to users table.")
+            
         cursor.execute('''
-            INSERT INTO users (username, password_hash, role)
-            VALUES (?, ?, ?)
-        ''', (username, password_hash, role))
+            INSERT INTO users (username, password_hash, role, email)
+            VALUES (?, ?, ?, ?)
+        ''', (username, password_hash, role, email))
         conn.commit()
         return cursor.lastrowid
     except sqlite3.IntegrityError as e:
@@ -480,7 +490,7 @@ def get_all_users():
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     try:
-        cursor.execute('SELECT id, username, role, created_at FROM users ORDER BY id')
+        cursor.execute('SELECT id, username, email, role, created_at FROM users ORDER BY id')
         users = [dict(row) for row in cursor.fetchall()]
         # Add display_name field for compatibility with frontend
         for user in users:
@@ -506,6 +516,42 @@ def update_user_role(user_id, role):
         return cursor.rowcount > 0
     except Exception as e:
         print(f"Error updating user role: {e}")
+        return False
+    finally:
+        conn.close()
+
+def update_user_display_name(user_id, display_name):
+    """Update a user's display name."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            UPDATE users 
+            SET display_name = ?
+            WHERE id = ?
+        ''', (display_name, user_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error updating user display name: {e}")
+        return False
+    finally:
+        conn.close()
+
+def update_user_email(user_id, email):
+    """Update a user's email address."""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    try:
+        cursor.execute('''
+            UPDATE users 
+            SET email = ?
+            WHERE id = ?
+        ''', (email, user_id))
+        conn.commit()
+        return cursor.rowcount > 0
+    except Exception as e:
+        print(f"Error updating user email: {e}")
         return False
     finally:
         conn.close()

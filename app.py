@@ -3,6 +3,7 @@ import ollama
 import config # Added import
 from config import DEFAULT_MODEL, MODEL_OPTIONS, API_TIMEOUT, THINKING_MODELS, AVAILABLE_MODELS, OLLAMA_HOST, AVAILABLE_EMBEDDING_MODELS, VISIBLE_MODELS, USER_PREFERENCES
 import os
+import re
 import logging
 from logging.handlers import RotatingFileHandler
 import json
@@ -151,16 +152,21 @@ def register():
     if request.method == 'POST':
         data = request.form if request.form else request.json
         username = data.get('username')
+        email = data.get('email')
         password = data.get('password')
         # Check if this is the first user
         is_first_user = db.get_user_by_id(1) is None
         role = 'admin' if is_first_user else 'user'
-        if not username or not password:
-            return jsonify({'status': 'error', 'message': 'Username and password required'}), 400
+        if not username or not email or not password:
+            return jsonify({'status': 'error', 'message': 'Username, email, and password required'}), 400
         if db.get_user_by_username(username):
             return jsonify({'status': 'error', 'message': 'Username already exists'}), 400
+        # Validate email format
+        import re
+        if not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+            return jsonify({'status': 'error', 'message': 'Invalid email format'}), 400
         password_hash = bcrypt.hash(password)
-        user_id = db.create_user(username, password_hash, role)
+        user_id = db.create_user(username, password_hash, role, email=email)
         if user_id:
             user_dict = db.get_user_by_id(user_id)
             user = User(user_dict)
@@ -169,7 +175,7 @@ def register():
         else:
             return jsonify({'status': 'error', 'message': 'Registration failed'}), 500
     # For GET, return a simple registration form (for testing)
-    return '''<form method="post"><input name="username" placeholder="Username"><input name="password" type="password" placeholder="Password"><button type="submit">Register</button></form>'''
+    return '''<form method="post"><input name="username" placeholder="Username"><input name="email" placeholder="Email"><input name="password" type="password" placeholder="Password"><button type="submit">Register</button></form>'''
 
 # --- Login Route ---
 @app.route('/login', methods=['GET', 'POST'])
@@ -206,9 +212,38 @@ def list_models():
     try:
         app.logger.info("Attempting to get available models...")
         
-        # Use the filtered models from config based on user preferences
-        models_list = VISIBLE_MODELS
-        app.logger.info(f"Visible models: {models_list}")
+        # Get user preferences if user is logged in
+        user_preferred_models = []
+        if current_user.is_authenticated:
+            user_id = str(current_user.id)
+            try:
+                if os.path.exists('data/user_preferences.json'):
+                    with open('data/user_preferences.json', 'r') as f:
+                        all_prefs = json.load(f)
+                        user_prefs = all_prefs.get(user_id, {})
+                        if user_prefs and 'visible_models' in user_prefs and user_prefs['visible_models']:
+                            user_preferred_models = user_prefs['visible_models']
+                            app.logger.info(f"User preferred models: {user_preferred_models}")
+            except Exception as e:
+                app.logger.error(f"Error loading user preferences: {e}")
+        
+        # Get available models from Ollama
+        models_list = config.AVAILABLE_MODELS.copy()
+        app.logger.info(f"Available models from Ollama: {models_list}")
+        
+        # Filter models based on user preferences if they exist
+        if user_preferred_models:
+            # If user has specific visible models, use only those that are available
+            filtered_models = []
+            for model_name in user_preferred_models:
+                # Only add models that exist in available models or are explicitly preferred
+                if model_name in models_list:
+                    filtered_models.append(model_name)
+            
+            # Replace models_list with filtered list if we have preferences
+            if filtered_models:
+                models_list = filtered_models
+                app.logger.info(f"Filtered models based on user preferences: {models_list}")
         
         # Convert simple string models to objects for consistent frontend handling
         serializable_models = []
@@ -1020,8 +1055,29 @@ def list_embedding_models():
 def get_preferences():
     """Get user preferences"""
     try:
-        # Get user preferences from config
-        preferences = config.load_user_preferences()
+        # Get user ID
+        user_id = str(current_user.id)
+        
+        # Load preferences from file
+        preferences = {}
+        try:
+            if os.path.exists('data/user_preferences.json'):
+                with open('data/user_preferences.json', 'r') as f:
+                    all_prefs = json.load(f)
+                    preferences = all_prefs.get(user_id, {})
+        except Exception as e:
+            app.logger.error(f"Error loading preferences: {e}")
+            preferences = {}
+        
+        # If no preferences found, use defaults
+        if not preferences:
+            preferences = {
+                'default_model': None,
+                'default_embedding_model': 'nomic-embed-text',
+                'visible_models': [],  # Empty means show all
+                'theme': 'system',
+                'show_thinking': False
+            }
         
         # Get available models for the preferences UI
         available_models = config.get_available_models()
@@ -1088,12 +1144,28 @@ def update_preferences():
                     pass
         
         # Save preferences
-        USER_PREFERENCES[user_id] = prefs
+        USER_PREFERENCES[str(user_id)] = prefs
         
         # Save to disk
         try:
+            # Create data directory if it doesn't exist
+            os.makedirs('data', exist_ok=True)
+            
+            # Read existing preferences to merge
+            existing_prefs = {}
+            try:
+                if os.path.exists('data/user_preferences.json'):
+                    with open('data/user_preferences.json', 'r') as f:
+                        existing_prefs = json.load(f)
+            except Exception:
+                pass  # If file is corrupted, start fresh
+            
+            # Update with new preferences
+            existing_prefs[str(user_id)] = prefs
+            
+            # Write back to file
             with open('data/user_preferences.json', 'w') as f:
-                json.dump(USER_PREFERENCES, f)
+                json.dump(existing_prefs, f, indent=2)
         except Exception as e:
             app.logger.error(f"Error saving preferences to disk: {e}")
         
@@ -1174,21 +1246,36 @@ def list_users():
 
 @app.route('/api/users/<int:user_id>', methods=['PUT'])
 @login_required
-@admin_required
 def update_user(user_id):
-    """Update a user's role (admin only)"""
+    """Update a user's information"""
     try:
         data = request.json
         
-        # Don't allow changing your own role
-        if user_id == current_user.id:
+        # Only admins can change roles, and users can only update their own info
+        is_admin = current_user.role == 'admin'
+        is_self = user_id == current_user.id
+        
+        if not is_admin and not is_self:
             return jsonify({
                 'status': 'error',
-                'message': 'You cannot change your own role'
-            }), 400
+                'message': 'You can only update your own information'
+            }), 403
         
-        # Update role if provided
+        # Update role if provided (admin only)
         if 'role' in data:
+            if not is_admin:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Only admins can change roles'
+                }), 403
+                
+            # Don't allow changing your own role
+            if is_self:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'You cannot change your own role'
+                }), 400
+                
             role = data['role']
             if role not in ['admin', 'user']:
                 return jsonify({
@@ -1201,6 +1288,38 @@ def update_user(user_id):
                 return jsonify({
                     'status': 'error',
                     'message': 'Failed to update user role'
+                }), 500
+        
+        # Update display name if provided
+        if 'display_name' in data:
+            display_name = data['display_name']
+            if not display_name:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Display name cannot be empty'
+                }), 400
+                
+            success = db.update_user_display_name(user_id, display_name)
+            if not success:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Failed to update display name'
+                }), 500
+                
+        # Update email if provided
+        if 'email' in data:
+            email = data['email']
+            if email and not re.match(r'^[^\s@]+@[^\s@]+\.[^\s@]+$', email):
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Invalid email format'
+                }), 400
+                
+            success = db.update_user_email(user_id, email)
+            if not success:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Failed to update email'
                 }), 500
         
         return jsonify({
