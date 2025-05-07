@@ -635,15 +635,6 @@ def generate():
         if not conversation_id:
             conversation_id = db.create_conversation(current_user.id, 'New Conversation', model_name)
             
-        if not secret:
-            # Pass attachment_filename when adding user message
-            user_message_id = db.add_message(conversation_id, 'user', user_message, attachment_filename=attachment_filename)
-            
-            # Increment message count for quota tracking
-            db.increment_user_message_count(current_user.id)
-        else:
-            user_message_id = f"secret-{uuid.uuid4()}"
-        
         # --- 1. Add User Message to DB ---
         try:
             if not secret:
