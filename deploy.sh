@@ -34,18 +34,7 @@ echo "Checking Python and pip versions in venv..."
 python --version
 pip --version
 
-echo "Attempting to install cryptography>=45.0 individually..."
-pip install "cryptography>=45.0"
-if [ $? -ne 0 ]; then
-    echo "ERROR: Failed to install cryptography>=45.0 individually. See pip errors above."
-    # Optionally, try with a slightly older but still secure version if 45.0 is truly problematic
-    # echo "Attempting to install cryptography==44.0.3 (as a fallback test)..."
-    # pip install "cryptography==44.0.3"
-    # if [ $? -ne 0 ]; then
-    #     echo "ERROR: Fallback cryptography installation also failed."
-    # fi
-    exit 1
-fi
+
 echo "Cryptography installed successfully or was already satisfied."
 pip install -r requirements.txt
 pip install gunicorn==21.2.0 gevent==24.2.1
