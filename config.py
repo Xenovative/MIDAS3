@@ -140,7 +140,7 @@ MODEL_OPTIONS = {
 
 # Thinking process configuration
 THINKING_MODELS = [
-    'deepseek-r1:7b'
+    'deepseek-r1:7b',
     'qwen3:30b'
 ]
 
