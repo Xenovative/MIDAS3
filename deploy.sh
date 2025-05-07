@@ -123,7 +123,7 @@ Description=MIDAS3 Application
 After=network.target nginx.service
 
 [Service]
-User=ec2-user
+User=root
 WorkingDirectory=$(pwd)
 EnvironmentFile=$(pwd)/.env
 ExecStart=$(pwd)/venv/bin/gunicorn -w 4 -k gevent -b 127.0.0.1:5000 --access-logfile - app:app

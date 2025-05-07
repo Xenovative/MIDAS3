@@ -20,7 +20,7 @@ unstructured==0.17.2
 
 # Security Critical
 cryptography>=44.0.3
-urllib3>=2.2.1
+urllib3>=1.26.0,<1.27
 requests>=2.32.2
 
 # Utilities
