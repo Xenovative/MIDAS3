@@ -6,7 +6,20 @@
 # 1. System Setup
 sudo dnf check-update -y
 sudo dnf upgrade -y
+echo "Installing core packages including Nginx..."
 sudo dnf install -y python3 python3-pip python3-venv nginx git openssl
+
+echo "Reloading systemd manager configuration after package installations..."
+sudo systemctl daemon-reload
+
+echo "Verifying Nginx service unit file..."
+if ! sudo systemctl list-unit-files | grep -q '^nginx.service'; then
+    echo "ERROR: nginx.service unit file not found after installation."
+    echo "Please check dnf logs (e.g., /var/log/dnf.log) and ensure the nginx package installed correctly."
+    exit 1
+else
+    echo "Nginx service unit file found."
+fi
 
 # 2. Python Environment
 python3 -m venv venv
