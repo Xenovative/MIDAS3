@@ -394,7 +394,7 @@ def update_conversation(conversation_id):
                 if model_name.startswith('bot:'):
                     try:
                         bot_id = model_name[4:]  # Remove 'bot:' prefix
-                        bot = Bot.get(bot_id)
+                        bot = Bot.get_bot_by_id(bot_id)
                         if bot:
                             model_name = bot.base_model or DEFAULT_MODEL
                             app.logger.info(f"Using bot's base model {model_name} for title generation")
@@ -671,39 +671,64 @@ def generate():
         # Each message should have a role (user or assistant) and content
         messages = []
         
-        # Process previous messages and add them to the messages array
-        # We need to exclude the current user message which might already be in the database
-        # This happens because we add the user message to the database before generating a response
-        
-        # First, find the ID of the current user message in the database (if it exists)
+        # Check if the current user message is already in the database
+        current_user_message_in_history = False
         current_user_message_id = None
+        
+        # Look for the current message in the history
         for msg in reversed(previous_messages):  # Start from the most recent
             if msg['role'] == 'user' and msg.get('content') == user_message and 'id' in msg:
+                current_user_message_in_history = True
                 current_user_message_id = msg['id']
                 break
         
-        # Now build the history excluding the current message
+        # Build the message history
         history_messages = []
-        for msg in previous_messages:
-            # Skip the current user message that we just added to the database
-            if current_user_message_id and 'id' in msg and msg['id'] == current_user_message_id:
-                continue
-            history_messages.append(msg)
+        
+        # If we found our current message in history, we need to include it and exclude duplicates
+        if current_user_message_in_history:
+            # Include all messages except duplicates of the current user message
+            seen_current_message = False
+            for msg in previous_messages:
+                # Only include the first instance of the current message
+                if current_user_message_id and 'id' in msg and msg['id'] == current_user_message_id:
+                    if not seen_current_message:
+                        history_messages.append(msg)
+                        seen_current_message = True
+                    continue  # Skip duplicates
+                history_messages.append(msg)
+        else:
+            # Current message not in history, so include all previous messages
+            history_messages = previous_messages
         
         # Limit to the last 20 messages to avoid context length issues
         if len(history_messages) > 20:
             history_messages = history_messages[-20:]
         
         # Add previous messages to the context
+        seen_messages = set()
         for msg in history_messages:
             if msg['role'] in ['user', 'assistant']:
-                clean_msg = {
-                    "role": msg['role'],
-                    "content": msg['content']
-                }
-                messages.append(clean_msg)
+                # Create a unique key for each message to detect duplicates
+                msg_key = (msg['role'], msg['content'])
+                if msg_key not in seen_messages:
+                    clean_msg = {
+                        "role": msg['role'],
+                        "content": msg['content']
+                    }
+                    messages.append(clean_msg)
+                    seen_messages.add(msg_key)
         
-        # Add the current user message
+        # Add system prompt first if it exists
+        system_prompt = data.get('system_prompt', '')
+        if system_prompt:
+            system_msg = {
+                "role": "system",
+                "content": system_prompt
+            }
+            messages.append(system_msg)
+            
+        # Create the current user message
         user_msg = {
             "role": "user",
             "content": user_message
@@ -713,6 +738,10 @@ def generate():
         images = data.get('images', [])
         if images:
             user_msg["images"] = images
+            
+        # Only add current message if not already in history
+        if ("user", user_message) not in seen_messages:
+            messages.append(user_msg)
         
         system_prompt = data.get('system_prompt', '')
         if system_prompt:
