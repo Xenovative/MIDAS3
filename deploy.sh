@@ -7,7 +7,7 @@
 sudo dnf check-update -y
 sudo dnf upgrade -y
 echo "Installing core packages including Nginx and build tools..."
-sudo dnf install -y python3 python3-pip nginx git openssl gcc python3-devel openssl-devel libffi-devel cargo
+sudo dnf install -y python3 python3-pip nginx git openssl gcc python3-devel openssl-devel libffi-devel cargo firewalld
 
 echo "Reloading systemd manager configuration after package installations..."
 sudo systemctl daemon-reload
@@ -37,6 +37,18 @@ pip --version
 
 echo "Cryptography installed successfully or was already satisfied."
 pip install -r requirements.txt
+if [ $? -ne 0 ]; then
+    echo "ERROR: 'pip install -r requirements.txt' failed. See errors above."
+    exit 1
+fi
+
+echo "Verifying Flask installation..."
+pip show flask
+if [ $? -ne 0 ]; then
+    echo "ERROR: Flask is not installed after 'pip install -r requirements.txt'."
+    exit 1
+fi
+echo "Flask installation verified."
 pip install gunicorn==21.2.0 gevent==24.2.1
 
 # 3. Configuration
@@ -46,6 +58,26 @@ SECRET_KEY=$(openssl rand -hex 32)
 DATABASE_URL=sqlite:///$(pwd)/data/conversations.db
 OLLAMA_HOST=http://localhost:11434
 EOL
+
+# 3.1. Set Permissions
+echo "Setting permissions for project directory..."
+PROJECT_DIR=$(pwd)
+# Set for root user
+sudo chown -R root:root "$PROJECT_DIR"
+# Grant read+execute for user (ec2-user) on all files/dirs in the project.
+sudo chmod -R u+rX "$PROJECT_DIR"
+# Specifically for static assets to be served by Nginx (nginx user is 'other')
+# and for general access if needed:
+# Allow 'others' (e.g., nginx user) to traverse into the project directory.
+sudo chmod o+x "$PROJECT_DIR"
+# Allow 'others' to traverse into 'static' and read files within.
+# Ensure static directory itself is executable by others.
+sudo chmod o+x "$PROJECT_DIR/static"
+# Ensure subdirectories within static are executable by others.
+sudo find "$PROJECT_DIR/static" -type d -exec sudo chmod o+x {} \;
+# Ensure files within static (and its subdirectories) are readable by others.
+sudo find "$PROJECT_DIR/static" -type f -exec sudo chmod o+r {} \;
+
 
 # 4. Nginx Setup
 sudo bash -c 'cat > /etc/nginx/conf.d/midas.conf <<EOL
