@@ -44,8 +44,19 @@ server {
 }
 EOL'
 
-sudo systemctl restart nginx
-sudo systemctl enable nginx
+# Ensure Nginx is started and enabled correctly
+sudo systemctl daemon-reload # Reload systemd manager configuration
+sudo systemctl start nginx
+if sudo systemctl is-active --quiet nginx; then
+    echo "Nginx started successfully."
+    sudo systemctl enable nginx
+    echo "Nginx enabled successfully."
+    sudo systemctl restart nginx # Restart to apply new midas.conf
+else
+    echo "ERROR: Nginx failed to start. Please check the Nginx installation and logs."
+    sudo systemctl status nginx
+    exit 1
+fi
 
 # 5. Systemd Service (Optional)
 read -p "Do you want to set up MIDAS as a Systemd service? (y/N): " setup_service
