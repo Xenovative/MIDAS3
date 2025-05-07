@@ -19,7 +19,7 @@ pypdf==5.4.0
 unstructured==0.17.2
 
 # Security Critical
-cryptography>=45.0
+cryptography>=44.0.3
 urllib3>=2.2.1
 requests>=2.32.2
 
