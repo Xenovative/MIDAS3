@@ -1871,9 +1871,12 @@ def generate_image():
     print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
     resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=120)
     print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
+    print(f"ComfyUI response headers: {resp.headers}")  # Debug headers
     resp.raise_for_status()
     result = resp.json()
     print(f"ComfyUI prompt_id: {result.get('prompt_id')}")
+    if not result.get('prompt_id'):
+        return jsonify({'status': 'error', 'message': 'ComfyUI did not return a prompt_id'}), 500
         
     # Wait for the generation to complete
     max_attempts = 600  # Maximum wait time = max_attempts * sleep_time (10 minutes)
