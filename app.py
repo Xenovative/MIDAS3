@@ -1876,8 +1876,8 @@ def generate_image():
     print(f"ComfyUI prompt_id: {result.get('prompt_id')}")
         
     # Wait for the generation to complete
-    max_attempts = 300  # Maximum wait time = max_attempts * sleep_time (5 minutes)
-    sleep_time = 1  # seconds
+    max_attempts = 600  # Maximum wait time = max_attempts * sleep_time (10 minutes)
+    sleep_time = 0.5  # seconds
 
     for _ in range(max_attempts):
         print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {_ + 1}/{max_attempts})")
@@ -1956,6 +1956,9 @@ def generate_image():
                     'status': 'error',
                     'message': 'Image generation completed but image file not found'
                 }), 404
+
+        else:
+            time.sleep(sleep_time)  # Wait before next attempt
 
     # If we've exhausted all attempts and still haven't found the image
     return jsonify({
