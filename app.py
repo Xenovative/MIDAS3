@@ -1816,7 +1816,7 @@ def generate_image():
             width, height = 1024, 1024
         
     # ComfyUI API endpoint
-    comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://127.0.0.1:8188')
+    comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://localhost:8188')
     comfy_ws_url = os.environ.get('COMFYUI_WS_URL', 'ws://127.0.0.1:8188')
     comfy_output_dir = os.environ.get('COMFYUI_OUTPUT_DIR', 'MIDAS_standalone/ComfyUI/output')
         
@@ -1867,8 +1867,9 @@ def generate_image():
         return jsonify({'status': 'error', 'message': 'No workflow specified'}), 400
         
     # Submit to ComfyUI
-    print(f"Submitting to ComfyUI at {comfy_api_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
-    resp = requests.post(comfy_api_url, json={'prompt': comfyui_payload}, timeout=120)
+    comfyui_url = f"{comfy_api_url}/prompt"
+    print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
+    resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=120)
     print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
     resp.raise_for_status()
     result = resp.json()
