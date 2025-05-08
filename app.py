@@ -1879,12 +1879,15 @@ def generate_image():
         return jsonify({'status': 'error', 'message': 'ComfyUI did not return a prompt_id'}), 500
         
     # Wait for the generation to complete
-    max_attempts = 600  # Maximum wait time = max_attempts * sleep_time (10 minutes)
-    sleep_time = 0.5  # seconds
+    max_attempts = 180  # 30 minutes total (180 * 10-60 seconds)
+    base_sleep = 10  # Start with 10 seconds between checks
+    max_sleep = 60  # Max 60 seconds between checks
+    backoff_factor = 1.5  # Multiply sleep time by this after each check
 
-    for _ in range(max_attempts):
-        print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {_ + 1}/{max_attempts})")
-        history_resp = requests.get(f'http://localhost:8188/history/{result.get("prompt_id")}', timeout=10)
+    current_sleep = base_sleep
+    for attempt in range(max_attempts):
+        print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {attempt + 1}/{max_attempts})")
+        history_resp = requests.get(f'http://localhost:8188/history/{result.get("prompt_id")}', timeout=30)
         print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
         
         if history_resp.status_code == 200:
@@ -1961,8 +1964,9 @@ def generate_image():
                 }), 404
 
         else:
-            time.sleep(sleep_time)  # Wait before next attempt
-
+            time.sleep(current_sleep)
+            current_sleep = min(current_sleep * backoff_factor, max_sleep)
+            
     # If we've exhausted all attempts and still haven't found the image
     return jsonify({
         'status': 'error',
