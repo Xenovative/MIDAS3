@@ -1909,7 +1909,7 @@ def generate_image():
 
                     if image_filename:
                         # Construct path to the image in ComfyUI's output directory
-                        comfy_output_dir = r'C:\AIapps\MIDAS_standaloneapp\ComfyUI\output'
+                        comfy_output_dir = r'root\MIDAS_standaloneapp\ComfyUI\output'
                         image_path = os.path.join(comfy_output_dir, image_filename)
 
                         # Make sure the file exists
