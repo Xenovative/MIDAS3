@@ -1818,7 +1818,7 @@ def generate_image():
     # ComfyUI API endpoint
     comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://127.0.0.1:8188')
     comfy_ws_url = os.environ.get('COMFYUI_WS_URL', 'ws://127.0.0.1:8188')
-    comfy_output_dir = os.environ.get('COMFYUI_OUTPUT_DIR', 'ComfyUI/output')
+    comfy_output_dir = os.environ.get('COMFYUI_OUTPUT_DIR', '/MIDAS_standalone/ComfyUI/output')
         
     # Determine which workflow to use
     workflow = None
@@ -1909,7 +1909,6 @@ def generate_image():
 
                     if image_filename:
                         # Construct path to the image in ComfyUI's output directory
-                        comfy_output_dir = r'\MIDAS_standaloneapp\ComfyUI\output'
                         image_path = os.path.join(comfy_output_dir, image_filename)
                         print(f"Looking for image at: {image_path}")  # Debug output
                         # Make sure the file exists
