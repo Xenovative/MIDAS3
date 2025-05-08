@@ -22,12 +22,16 @@ unstructured==0.17.2
 cryptography>=44.0.3
 urllib3>=1.26.0,<1.27
 requests>=2.32.2
+passlib==1.7.4
+
 
 # Utilities
 aiohttp==3.11.16
 beautifulsoup4==4.13.3
 python-socketio==5.13.0
 Flask-SocketIO==5.5.1
+Flask-Login==0.6.2
+
 
 # Optional
 boto3==1.38.2
