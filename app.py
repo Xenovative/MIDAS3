@@ -1909,11 +1909,12 @@ def generate_image():
 
                     if image_filename:
                         # Construct path to the image in ComfyUI's output directory
-                        comfy_output_dir = r'root\MIDAS_standaloneapp\ComfyUI\output'
+                        comfy_output_dir = r'\MIDAS_standaloneapp\ComfyUI\output'
                         image_path = os.path.join(comfy_output_dir, image_filename)
-
+                        print(f"Looking for image at: {image_path}")  # Debug output
                         # Make sure the file exists
                         if os.path.exists(image_path):
+                            print(f"Found image at: {image_path}")  # Debug output
                             # Read and encode the image
                             with open(image_path, 'rb') as img_file:
                                 img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
