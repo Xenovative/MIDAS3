@@ -1866,15 +1866,6 @@ def generate_image():
     else:
         return jsonify({'status': 'error', 'message': 'No workflow specified'}), 400
         
-    # Before prompt submission
-    print(f"Checking output directory: {comfy_output_dir}")
-    print(f"Directory exists: {os.path.exists(comfy_output_dir)}")
-    print(f"Directory writable: {os.access(comfy_output_dir, os.W_OK)}")
-
-    # Validate workflow has SaveImage node
-    if not any(node.get('class_type') == 'SaveImage' for node in comfyui_payload.values() if isinstance(node, dict)):
-        return jsonify({'status': 'error', 'message': 'Workflow missing SaveImage node'}), 400
-
     # Submit to ComfyUI
     comfyui_url = f"{comfy_api_url.rstrip('/')}/prompt"
     print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
@@ -1889,16 +1880,23 @@ def generate_image():
     sleep_time = 0.5  # seconds
 
     for attempt in range(max_attempts):
-        print(f"Checking queue for prompt_id {result.get('prompt_id')} (attempt {attempt + 1}/{max_attempts})")
-        history_resp = requests.get(f'{comfy_api_url.rstrip("/")}/queue', timeout=30)
-        print(f"Queue response: {history_resp.status_code}, content: {history_resp.text}")
-
-        if history_resp.status_code == 200:
-            queue_data = history_resp.json()
-            # Check if our prompt_id is still in queue
-            running_prompts = queue_data.get('queue_running', []) + queue_data.get('queue_pending', [])
-            if result.get('prompt_id') not in running_prompts:
-                # Generation complete, now check outputs
+        # First check queue status
+        queue_resp = requests.get(f'{comfy_api_url.rstrip("/")}/queue', timeout=30)
+        print(f"Queue check: {queue_resp.status_code}")
+        
+        if queue_resp.status_code == 200:
+            queue_data = queue_resp.json()
+            # Check prompt status
+            if result.get('prompt_id') in queue_data.get('queue_running', []):
+                print(f"Prompt {result['prompt_id']} still processing")
+                time.sleep(sleep_time)
+                continue
+            elif result.get('prompt_id') in queue_data.get('queue_pending', []):
+                print(f"Prompt {result['prompt_id']} still in queue")
+                time.sleep(sleep_time)
+                continue
+            else:
+                # Prompt finished, check outputs
                 outputs_resp = requests.get(f'{comfy_api_url.rstrip("/")}/history/{result.get("prompt_id")}', timeout=30)
                 if outputs_resp.status_code == 200:
                     outputs_data = outputs_resp.json()
@@ -1979,12 +1977,6 @@ def generate_image():
         'status': 'error',
         'message': 'Timed out waiting for image generation to complete'
     }), 504
-
-# After queue check
-    if result.get('prompt_id') not in running_prompts:
-        print("Generation complete, waiting 5s for file save...")
-        time.sleep(5)
-        outputs_resp = requests.get(f'{comfy_api_url.rstrip("/")}/history/{result.get("prompt_id")}', timeout=30)
 
 # ============================================================
 # Bot Management API
