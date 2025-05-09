@@ -6,8 +6,7 @@ from langchain_community.vectorstores import Chroma
 from config import OLLAMA_HOST
 import json
 import logging
-
-app = logging.getLogger(__name__)
+from flask import current_app as app
 
 # --- Configuration ---
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
@@ -329,33 +328,23 @@ def generate_response(query, collection_name=DEFAULT_COLLECTION_NAME, conversati
     3. Generating LLM response
     """
     try:
-        # Get relevant documents
-        context = get_relevant_documents(
-            query,
-            collection_name=collection_name,
-            conversation_id=conversation_id,
-            k=3
-        )
+        context = get_relevant_documents(query, collection_name, conversation_id)
         
-        if not context:
-            print("No relevant documents found, using direct response")
-            return "I couldn't find relevant information to answer that."
-            
-        # Format prompt with context
-        prompt = f"""Use the following context to answer the question:
-        
-        Context:
+        prompt = f"""Use this context to answer:
         {context}
         
         Question: {query}
-        
         Answer:"""
         
-        return prompt
+        response = ollama.generate(
+            model='llama2',
+            prompt=prompt
+        )
+        return response['response']
         
     except Exception as e:
-        print(f"Error in RAG response generation: {e}")
-        return "I encountered an error processing your request."
+        app.logger.error(f"Response generation failed: {str(e)}", exc_info=True)
+        raise
 
 def get_debug_info(collection_name):
     """Return debug information about the RAG state"""
