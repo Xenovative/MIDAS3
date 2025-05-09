@@ -1902,7 +1902,38 @@ def generate_image():
     backoff_factor = 1.5  # Multiply sleep time by this after each check
 
     current_sleep = base_sleep
+    print(f"Starting generation monitoring for workflow: {workflow}")
+    progress_check_interval = 5  # Check progress every 5 attempts
+    file_check_interval = 3      # Check output files every 3 attempts
+    last_file_size = 0
+
     for attempt in range(max_attempts):
+        # Progress tracking
+        if attempt % progress_check_interval == 0:
+            try:
+                progress = requests.get('http://localhost:8188/progress', timeout=15).json()
+                print(f"Generation progress: {progress.get('value',0)*100:.1f}% | "
+                      f"ETA: {progress.get('eta_relative',0):.1f}s | "
+                      f"Active: {progress.get('active', False)}")
+            except Exception as e:
+                print(f"Progress check failed: {str(e)}")
+
+        # File growth monitoring
+        if attempt % file_check_interval == 0:
+            output_files = [f for f in os.listdir(comfy_output_dir) 
+                           if f.startswith('MIDAS_Flux_Enhanced')]
+            if output_files:
+                try:
+                    current_size = os.path.getsize(os.path.join(comfy_output_dir, output_files[-1]))
+                    if current_size > last_file_size:
+                        print(f"Output file growing: {current_size} bytes (+{current_size - last_file_size})")
+                        last_file_size = current_size
+                    else:
+                        print("Output file size unchanged")
+                except Exception as e:
+                    print(f"File size check failed: {str(e)}")
+
+        # Existing history check logic...
         print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {attempt + 1}/{max_attempts})")
         history_resp = requests.get(f'http://localhost:8188/history/{result.get("prompt_id")}', timeout=30)
         print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
