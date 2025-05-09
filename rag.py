@@ -1,6 +1,6 @@
 import os
 from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, UnstructuredMarkdownLoader
+from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, UnstructuredMarkdownLoader, UnstructuredXMLLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from config import OLLAMA_HOST
@@ -41,6 +41,9 @@ def load_documents(source_directory):
 
     loader_md = DirectoryLoader(source_directory, glob="**/*.md", loader_cls=UnstructuredMarkdownLoader, recursive=True, show_progress=True)
     documents.extend(loader_md.load())
+    
+    loader_xml = DirectoryLoader(source_directory, glob="**/*.xml", loader_cls=UnstructuredXMLLoader, recursive=True, show_progress=True)
+    documents.extend(loader_xml.load())
 
     print(f"Loaded {len(documents)} documents.")
     return documents
@@ -112,6 +115,8 @@ def add_single_document_to_store(file_path, collection_name=DEFAULT_COLLECTION_N
             loader = PyPDFLoader(file_path)
         elif file_extension == '.md':
             loader = UnstructuredMarkdownLoader(file_path)
+        elif file_extension == '.xml':
+            loader = UnstructuredXMLLoader(file_path)
         else:
             print(f"Unsupported file type: {file_extension}. Skipping.")
             return False

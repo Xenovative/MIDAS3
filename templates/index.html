@@ -3838,7 +3838,7 @@
                             <i class="fas fa-paper-plane"></i>
                         </button>
                     </div>
-                    <input type="file" id="doc-upload-input" name="document" accept=".txt,.pdf,.md" class="hidden-file-input" />
+                    <input type="file" id="doc-upload-input" accept=".txt,.pdf,.md,.xml" style="display: none">
                 </div>
             </div>
         </div>
@@ -4032,8 +4032,8 @@
                                 <div class="quota-usage">
                                     <h5>Current Usage</h5>
                                     <div id="quota-usage-stats">
-                                        <p>Daily: <span id="daily-usage">0</span> / <span id="daily-limit">0</span></p>
-                                        <p>Monthly: <span id="monthly-usage">0</span> / <span id="monthly-limit">0</span></p>
+                                        <p>Daily: <span id="daily-quota-usage" class="quota-value">0/0</span></p>
+                                        <p>Monthly: <span id="monthly-quota-usage" class="quota-value">0/0</span></p>
                                     </div>
                                 </div>
                                 
@@ -4258,7 +4258,9 @@
             <div class="message">
                 <div class="message-sender"></div>
                 <div class="message-content"></div>
-                <div class="message-attachment" style="display: none;"></div> <!-- Hidden by default -->
+                <div class="message-attachment" style="display: none;"> <!-- Hidden by default -->
+                    <!-- Attachment will go here -->
+                </div>
                 <div class="message-thinking" style="display: none;">Thinking...</div>
                 <div class="message-images"></div>
             </div>

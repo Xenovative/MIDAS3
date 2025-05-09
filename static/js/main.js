@@ -2029,20 +2029,13 @@ async function sendMessage() {
             if (selectedModel.startsWith('workflow:')) {
                 body.model = selectedModel;
             }
-            // Send request to generate image with longer timeout
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
-            
             const resp = await fetch('/api/generate_image', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify(body),
-                signal: controller.signal
+                body: JSON.stringify(body)
             });
-            
-            clearTimeout(timeoutId);
             const data = await resp.json();
             if (data.status === 'success' && data.image_base64) {
                 // Create a container for the image and buttons

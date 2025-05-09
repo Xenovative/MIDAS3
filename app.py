@@ -1579,7 +1579,7 @@ def reset_user_quota_counters(user_id):
         }), 500
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'docs')
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'xml'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -1618,6 +1618,16 @@ def upload_document():
         try:
             file.save(file_path)
             app.logger.info(f"File '{filename}' saved successfully to '{file_path}'")
+            
+            # Process the file based on type
+            if filename.endswith('.xml'):
+                loader = UnstructuredXMLLoader(file_path)
+            elif filename.endswith('.md'):
+                loader = UnstructuredMarkdownLoader(file_path)
+            elif filename.endswith('.pdf'):
+                loader = PyPDFLoader(file_path)
+            else:  # Default to text loader
+                loader = TextLoader(file_path)
             
             # Add document to the conversation in the database
             document_id = db.add_conversation_document(conversation_id, filename, file_path)
