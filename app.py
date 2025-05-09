@@ -1643,9 +1643,15 @@ def chat():
         
         # Determine if we should use RAG
         use_rag = False
-        if collection_name and rag.has_documents(collection_name):
-            use_rag = True
-            app.logger.info(f"Using RAG with collection: {collection_name}")
+        if bot and bot.has_knowledge_base:
+            try:
+                use_rag = rag.has_documents(
+                    conversation_id=conversation_id,
+                    bot_id=str(bot.id)  # Ensure bot_id is string
+                )
+                app.logger.info(f"RAG {'enabled' if use_rag else 'disabled'} for this query")
+            except Exception as e:
+                app.logger.error(f"RAG check failed: {str(e)}", exc_info=True)
         else:
             app.logger.info("Using direct LLM (no RAG)")
         
