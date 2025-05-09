@@ -23,6 +23,12 @@ from flask import Flask, render_template, request, jsonify, Response, redirect, 
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
 from passlib.hash import bcrypt
 import sqlite3  # Import sqlite3 here
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    UnstructuredXMLLoader,
+    TextLoader,
+    UnstructuredMarkdownLoader
+)
 
 app = Flask(__name__, 
            template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -1626,21 +1632,26 @@ def upload_document():
             file.save(file_path)
             app.logger.info(f"File '{filename}' saved successfully to '{file_path}'")
             
-            # Process the file based on type
-            if filename.endswith('.xml'):
-                loader = UnstructuredXMLLoader(file_path)
-            elif filename.endswith('.md'):
-                loader = UnstructuredMarkdownLoader(file_path)
-            elif filename.endswith('.pdf'):
-                loader = PyPDFLoader(file_path)
-            else:  # Default to text loader
-                loader = TextLoader(file_path)
-            
-            # Add document to the conversation in the database
-            document_id = db.add_conversation_document(conversation_id, filename, file_path)
-            if not document_id:
-                app.logger.error(f"Failed to add document to conversation in database: {filename}")
-                return jsonify({'status': 'error', 'message': 'Failed to record document in database'}), 500
+            # Process and index the file
+            try:
+                if filename.endswith('.pdf'):
+                    loader = PyPDFLoader(file_path)
+                elif filename.endswith('.xml'):
+                    loader = UnstructuredXMLLoader(file_path)
+                elif filename.endswith('.md'):
+                    loader = UnstructuredMarkdownLoader(file_path)
+                else:  # .txt
+                    loader = TextLoader(file_path)
+                    
+                documents = loader.load()
+                # Add document to vector store
+                rag.add_documents(documents)
+                app.logger.info(f'Processed {len(documents)} documents from {filename}')
+            except Exception as e:
+                app.logger.error(f'Error processing file {filename}: {str(e)}')
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                saved_files.remove(filename)
             
             # Call RAG to index the new file with conversation-specific collection
             success = rag.add_single_document_to_store(file_path, conversation_id=conversation_id)
@@ -1649,11 +1660,11 @@ def upload_document():
                 return jsonify({
                     'status': 'success', 
                     'message': f'Document \'{filename}\' uploaded and indexed successfully.',
-                    'document_id': document_id
+                    'document_id': db.add_conversation_document(conversation_id, filename, file_path)
                 })
             else:
                 # Remove the document from the database if indexing failed
-                db.delete_conversation_document(document_id)
+                db.delete_conversation_document(db.add_conversation_document(conversation_id, filename, file_path))
                 app.logger.error(f"Failed to index document: {filename}")
                 return jsonify({'status': 'error', 'message': f'File uploaded but failed to index: {filename}'}), 500
                 
@@ -2171,7 +2182,25 @@ def upload_knowledge_files(bot_id):
                 file_path = os.path.join(kb_dir, filename)
                 file.save(file_path)
                 saved_files.append(filename)
-
+                
+                # Process and index the file
+                try:
+                    if filename.endswith('.pdf'):
+                        loader = PyPDFLoader(file_path)
+                    elif filename.endswith('.xml'):
+                        loader = UnstructuredXMLLoader(file_path)
+                    elif filename.endswith('.md'):
+                        loader = UnstructuredMarkdownLoader(file_path)
+                    else:  # .txt
+                        loader = TextLoader(file_path)
+                        
+                    documents = loader.load()
+                    # Add your indexing logic here
+                    app.logger.info(f'Processed {len(documents)} documents from {filename}')
+                except Exception as e:
+                    app.logger.error(f'Error processing file {filename}: {str(e)}')
+                    continue
+            
         if not saved_files:
             return jsonify({
                 'status': 'error', 
