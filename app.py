@@ -1775,14 +1775,22 @@ def chat():
         app.logger.info(f"Chat request - Bot: {bot_id or 'None'}, KB: {use_rag}, Conv: {conversation_id or 'New'}")
         
         if use_rag:
-            # Use RAG with bot's knowledge base
+            # Enhanced RAG logging
+            app.logger.info(f"Using RAG with collection: {bot.get_knowledge_base_collection()}")
+            app.logger.info(f"Bot knowledge files: {len(bot.knowledge_files)} files")
+            
+            # Get RAG context for debugging
+            rag_context = rag.get_debug_info(bot.get_knowledge_base_collection()) 
+            app.logger.info(f"RAG context: {json.dumps(rag_context, indent=2)}")
+            
             response = rag.generate_response(
                 message,
                 conversation_id=conversation_id,
                 collection_name=bot.get_knowledge_base_collection()
             )
+            app.logger.info(f"RAG response generated (length: {len(response) if response else 0})")
         else:
-            # Fallback to direct LLM response
+            app.logger.info("Using direct LLM (no RAG)")
             response = ollama.generate_response(message)
             
         return jsonify({

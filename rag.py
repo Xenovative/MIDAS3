@@ -255,6 +255,24 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         print("Please ensure the vector store has been set up correctly.")
         return ""
 
+def get_debug_info(collection_name):
+    """Return debug information about the RAG state"""
+    try:
+        vectorstore = Chroma(
+            persist_directory=CHROMA_PERSIST_DIR,
+            embedding_function=ollama_ef,
+            collection_name=collection_name
+        )
+        
+        return {
+            'collection': collection_name,
+            'document_count': vectorstore._collection.count() if hasattr(vectorstore, '_collection') else 0,
+            'embedding_model': str(ollama_ef),
+            'persist_dir': CHROMA_PERSIST_DIR
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
 # --- Example Usage (Optional) ---
 if __name__ == "__main__":
     docs_dir = "docs" 
