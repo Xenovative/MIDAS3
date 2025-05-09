@@ -46,10 +46,22 @@ app.config['REQUEST_BUFFER_SIZE'] = 100 * 1024 * 1024  # 100MB
 if not os.path.exists('logs'):
     os.makedirs('logs')
 
-log_handler = RotatingFileHandler('app.log', maxBytes=10000, backupCount=1)
-log_handler.setLevel(logging.INFO)
-app.logger.addHandler(log_handler)
+# Set up file logging
+file_handler = RotatingFileHandler('logs/app.log', maxBytes=1024*1024, backupCount=10)
+file_handler.setFormatter(logging.Formatter(
+    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
+))
+file_handler.setLevel(logging.INFO)
+app.logger.addHandler(file_handler)
+
+# Ensure gunicorn logs are captured when running under gunicorn
+if 'gunicorn' in os.environ.get('SERVER_SOFTWARE', ''):
+    gunicorn_logger = logging.getLogger('gunicorn.error')
+    app.logger.handlers = gunicorn_logger.handlers
+    app.logger.setLevel(gunicorn_logger.level)
+
 app.logger.setLevel(logging.INFO)
+app.logger.info('Application logging initialized')
 
 # --- Flask-Login Setup ---
 login_manager = LoginManager()
