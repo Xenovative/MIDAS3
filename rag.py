@@ -273,7 +273,8 @@ def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conve
                 contexts.append(conv_docs)
         
         combined = "\n\n".join(contexts)
-        app.logger.info(f"Found {len(contexts.split('\n\n'))} relevant document chunks")
+        doc_count = len(combined.split('\n\n')) if combined else 0
+        app.logger.info(f"Found {doc_count} relevant document chunks")
         return combined
     except Exception as e:
         app.logger.error(f"Document retrieval failed: {str(e)}", exc_info=True)
