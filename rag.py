@@ -4,6 +4,7 @@ from langchain_community.document_loaders import DirectoryLoader, TextLoader, Py
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from config import OLLAMA_HOST
+import json
 
 # --- Configuration ---
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
@@ -152,13 +153,22 @@ def add_single_document_to_store(file_path, collection_name=DEFAULT_COLLECTION_N
             vectorstore.persist()
             return True
 
-        print(f"Adding {len(split_docs)} chunks from '{filename}' to the vector store.")
-        # Add the new document chunks to the existing store
-        vectorstore.add_documents(split_docs)
+        print(f"Adding {len(split_docs)} document chunks to vector store")
+        print(f"Sample chunk metadata: {split_docs[0].metadata}" if split_docs else "No documents to add")
         
-        print(f"Persisting updated vector store to: {CHROMA_PERSIST_DIR}")
-        vectorstore.persist()
-        print(f"--- Single document '{filename}' added successfully ---")
+        vectorstore.add_documents(split_docs)
+        print(f"Successfully added documents to collection: {collection_name}")
+        
+        # Log document statistics
+        doc_stats = {
+            'collection': collection_name,
+            'documents_added': len(split_docs),
+            'source_file': filename,
+            'file_type': file_extension,
+            'avg_chunk_length': sum(len(d.page_content) for d in split_docs)/len(split_docs) if split_docs else 0
+        }
+        print("Document processing stats:", json.dumps(doc_stats, indent=2))
+        
         return True
 
     except Exception as e:
