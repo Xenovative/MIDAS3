@@ -117,21 +117,32 @@ fi
 # 5. Systemd Service (Optional)
 read -p "Do you want to set up MIDAS as a Systemd service? (y/N): " setup_service
 if [[ "$setup_service" =~ ^[Yy]$ ]]; then
-    sudo bash -c 'cat > /etc/systemd/system/midas.service <<EOL
+    # Create systemd service
+    echo "Creating systemd service..."
+
+    # Clean up old service first
+    echo "Stopping and removing existing MIDAS service..."
+    sudo systemctl stop midas || true
+    sudo systemctl disable midas || true
+    sudo rm -f /etc/systemd/system/midas.service
+    sudo systemctl daemon-reload
+
+    # Create new service
+    cat <<EOF | sudo tee /etc/systemd/system/midas.service > /dev/null
 [Unit]
-Description=MIDAS3 Application
-After=network.target nginx.service
+Description=MIDAS Application
+After=network.target
 
 [Service]
-User=root
-WorkingDirectory=$(pwd)
-EnvironmentFile=$(pwd)/.env
-ExecStart=$(pwd)/venv/bin/gunicorn -w 1 -k gevent -b 127.0.0.1:5000 --timeout 1800 --access-logfile - app:app
+User=$USER
+WorkingDirectory=$PWD
+Environment="PATH=$PWD/venv/bin:\$PATH"
+ExecStart=$PWD/venv/bin/gunicorn --bind 0.0.0.0:5000 --timeout 1800 --workers 3 app:app
 Restart=always
 
 [Install]
 WantedBy=multi-user.target
-EOL'
+EOF
 
     sudo systemctl daemon-reload
     sudo systemctl start midas
@@ -165,4 +176,3 @@ echo "║ 2. Configure HTTPS with Let's Encrypt        ║"
 echo "║ (Certbot for Nginx on Amazon Linux)        ║"
 echo "║ 3. Monitor logs: journalctl -u midas -f      ║"
 echo "╚══════════════════════════════════════════════╝"
-
