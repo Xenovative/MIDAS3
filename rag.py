@@ -218,18 +218,18 @@ def _collection_has_docs(collection_name):
 def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
     """Returns True if EITHER collection has documents"""
     try:
-        # Check conversation collection
-        if conversation_id:
-            conv_collection = get_conversation_collection_name(conversation_id)
-            app.logger.info(f"Checking conversation collection: {conv_collection}")
-            if _collection_has_docs(conv_collection):
-                return True
-        
-        # Check bot collection
+        # Always check bot collection if ID provided
         if bot_id:
             bot_collection = f"bot_{bot_id}"
             app.logger.info(f"Checking bot collection: {bot_collection}")
             if _collection_has_docs(bot_collection):
+                return True
+                
+        # Check conversation collection if ID provided
+        if conversation_id:
+            conv_collection = get_conversation_collection_name(conversation_id)
+            app.logger.info(f"Checking conversation collection: {conv_collection}")
+            if _collection_has_docs(conv_collection):
                 return True
                 
         return False

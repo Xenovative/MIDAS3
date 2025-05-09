@@ -1645,11 +1645,12 @@ def chat():
         use_rag = False
         if bot and bot.has_knowledge_base:
             try:
+                # Force check bot collection regardless of conversation
                 use_rag = rag.has_documents(
-                    conversation_id=conversation_id,
-                    bot_id=str(bot.id)  # Ensure bot_id is string
+                    bot_id=str(bot.id),
+                    conversation_id=conversation_id
                 )
-                app.logger.info(f"RAG {'enabled' if use_rag else 'disabled'} for this query")
+                app.logger.info(f"RAG {'enabled' if use_rag else 'disabled'} for bot {bot.id}")
             except Exception as e:
                 app.logger.error(f"RAG check failed: {str(e)}", exc_info=True)
         else:
