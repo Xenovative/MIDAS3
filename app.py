@@ -2151,17 +2151,15 @@ def upload_knowledge_files(bot_id):
             }), 400
 
         files = request.files.getlist('files')
-
-        # Get bot's knowledge base directory
-        kb_dir = bot.get_knowledge_base_path()
-
-        # Save files
         saved_files = []
+
+        # Create knowledge base directory if it doesn't exist
+        kb_dir = bot.get_knowledge_base_path()
+        os.makedirs(kb_dir, exist_ok=True)
+
         for file in files:
-            if file.filename:
+            if file and file.filename:
                 filename = secure_filename(file.filename)
-                
-                # Check file extension
                 if not (filename.endswith('.txt') or filename.endswith('.pdf') or 
                         filename.endswith('.md') or filename.endswith('.xml')):
                     continue
@@ -2170,14 +2168,23 @@ def upload_knowledge_files(bot_id):
                 file.save(file_path)
                 saved_files.append(filename)
 
-        # Update bot's knowledge files list
+        if not saved_files:
+            return jsonify({
+                'status': 'error', 
+                'message': 'No valid files uploaded'
+            }), 400
+
+        # Update bot's knowledge files
         bot.knowledge_files = list(set(bot.knowledge_files + saved_files))
         bot.save()
 
         return jsonify({
             'status': 'success',
-            'bot': bot.to_dict()
+            'message': f'{len(saved_files)} files uploaded',
+            'bot': bot.to_dict(),
+            'saved_files': saved_files
         })
+
     except Exception as e:
         return jsonify({
             'status': 'error',
