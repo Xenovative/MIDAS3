@@ -2153,6 +2153,12 @@ def upload_knowledge_files(bot_id):
         for file in files:
             if file.filename:
                 filename = secure_filename(file.filename)
+                
+                # Check file extension
+                if not (filename.endswith('.txt') or filename.endswith('.pdf') or 
+                        filename.endswith('.md') or filename.endswith('.xml')):
+                    continue
+                    
                 file_path = os.path.join(kb_dir, filename)
                 file.save(file_path)
                 saved_files.append(filename)
