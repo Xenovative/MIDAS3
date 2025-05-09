@@ -3827,8 +3827,19 @@ async function uploadKnowledgeFiles(botId, files) {
             showNotification(`Error uploading knowledge files: ${data.message}`, 'error');
         }
     } catch (error) {
-        console.error('Error uploading knowledge files:', error);
-        showNotification('Error uploading knowledge files', 'error');
+        let errorMsg = 'Error uploading files';
+        
+        // Handle 413 payload too large
+        if (error.message && error.message.includes('413')) {
+            errorMsg = 'File too large (max 100MB)';
+        } 
+        // Handle HTML error responses (when server returns HTML error page)
+        else if (error instanceof SyntaxError && error.message.includes('Unexpected token')) {
+            errorMsg = 'Server rejected upload - file may be too large';
+        }
+        
+        console.error('Upload error:', error);
+        showNotification(errorMsg, 'error');
     }
 }
 
