@@ -1907,103 +1907,106 @@ def generate_image():
     file_check_interval = 3      # Check output files every 3 attempts
     last_file_size = 0
 
-    for attempt in range(max_attempts):
-        # Progress tracking
-        if attempt % progress_check_interval == 0:
-            try:
-                progress = requests.get('http://localhost:8188/progress', timeout=15).json()
-                print(f"Generation progress: {progress.get('value',0)*100:.1f}% | "
-                      f"ETA: {progress.get('eta_relative',0):.1f}s | "
-                      f"Active: {progress.get('active', False)}")
-            except Exception as e:
-                print(f"Progress check failed: {str(e)}")
-
-        # File growth monitoring
-        if attempt % file_check_interval == 0:
-            output_files = [f for f in os.listdir(comfy_output_dir) 
-                           if f.startswith('MIDAS_Flux_Enhanced')]
-            if output_files:
+    try:
+        for attempt in range(max_attempts):
+            # Progress tracking
+            if attempt % progress_check_interval == 0:
                 try:
-                    current_size = os.path.getsize(os.path.join(comfy_output_dir, output_files[-1]))
-                    if current_size > last_file_size:
-                        print(f"Output file growing: {current_size} bytes (+{current_size - last_file_size})")
-                        last_file_size = current_size
+                    progress_resp = requests.get('http://localhost:8188/progress', timeout=5)
+                    if progress_resp.status_code == 200:
+                        progress = progress_resp.json()
+                        print(f"Progress: {progress.get('value',0)*100:.1f}%")
                     else:
-                        print("Output file size unchanged")
+                        print(f"Progress check failed (HTTP {progress_resp.status_code})")
                 except Exception as e:
-                    print(f"File size check failed: {str(e)}")
+                    print(f"Progress check error: {str(e)[:100]}")
 
-        # Existing history check logic...
-        print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {attempt + 1}/{max_attempts})")
-        history_resp = requests.get(f'http://localhost:8188/history/{result.get("prompt_id")}', timeout=30)
-        print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
-        
-        if history_resp.status_code == 200:
-            history_data = history_resp.json()
-            # Check if the prompt has outputs (meaning it's complete)
-            if history_data.get(result.get('prompt_id'), {}).get('outputs'):
-                # Get the outputs for the SaveImage node
-                outputs = history_data[result.get('prompt_id')]['outputs']
-                image_data = None
-                image_filename = None
+            # File growth monitoring
+            if attempt % file_check_interval == 0:
+                output_files = [f for f in os.listdir(comfy_output_dir) 
+                               if f.startswith('MIDAS_Flux_Enhanced')]
+                if output_files:
+                    try:
+                        current_size = os.path.getsize(os.path.join(comfy_output_dir, output_files[-1]))
+                        if current_size > last_file_size:
+                            print(f"Output file growing: {current_size} bytes (+{current_size - last_file_size})")
+                            last_file_size = current_size
+                        else:
+                            print("Output file size unchanged")
+                    except Exception as e:
+                        print(f"File size check failed: {str(e)[:100]}")
 
-                # Look through all outputs to find image data
-                for node_id, node_output in outputs.items():
-                    # Check if this is an image output
-                    if node_output.get('images'):
-                        # Get the first image
-                        image_filename = node_output['images'][0]['filename']
-                        image_data = node_output['images'][0]
-                        break
+            # Existing history check logic...
+            print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {attempt + 1}/{max_attempts})")
+            history_resp = requests.get(f'http://localhost:8188/history/{result.get("prompt_id")}', timeout=30)
+            print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
+            
+            if history_resp.status_code == 200:
+                history_data = history_resp.json()
+                # Check if the prompt has outputs (meaning it's complete)
+                if history_data.get(result.get('prompt_id'), {}).get('outputs'):
+                    # Get the outputs for the SaveImage node
+                    outputs = history_data[result.get('prompt_id')]['outputs']
+                    image_data = None
+                    image_filename = None
 
-                if image_filename:
-                    # Construct path to the image in ComfyUI's output directory
-                    image_path = os.path.join(comfy_output_dir, image_filename)
-                    print(f"Looking for image at: {image_path}")  # Debug output
-                    # Make sure the file exists
-                    if os.path.exists(image_path):
-                        print(f"Found image at: {image_path}")  # Debug output
-                        # Read and encode the image
-                        with open(image_path, 'rb') as img_file:
-                            img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
+                    # Look through all outputs to find image data
+                    for node_id, node_output in outputs.items():
+                        # Check if this is an image output
+                        if node_output.get('images'):
+                            # Get the first image
+                            image_filename = node_output['images'][0]['filename']
+                            image_data = node_output['images'][0]
+                            break
 
-                            # Save message to conversation history if conversation_id is provided
-                            if conversation_id:
-                                try:
-                                    # Use the db.add_message function to properly save the message
-                                    # This ensures proper persistence and updates conversation timestamps
-                                    message_id = db.add_message(
-                                        conversation_id=conversation_id,
-                                        role='assistant',
-                                        content=f'',
-                                        thinking=None,
-                                        images=[img_b64],  
-                                        attachment_filename=image_filename
-                                    )
+                    if image_filename:
+                        # Construct path to the image in ComfyUI's output directory
+                        image_path = os.path.join(comfy_output_dir, image_filename)
+                        print(f"Looking for image at: {image_path}")  # Debug output
+                        # Make sure the file exists
+                        if os.path.exists(image_path):
+                            print(f"Found image at: {image_path}")  # Debug output
+                            # Read and encode the image
+                            with open(image_path, 'rb') as img_file:
+                                img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
 
-                                    if not message_id:
-                                        print("Failed to save image message to database")
-                                        # Log the error but don't fail the request
+                                # Save message to conversation history if conversation_id is provided
+                                if conversation_id:
+                                    try:
+                                        # Use the db.add_message function to properly save the message
+                                        # This ensures proper persistence and updates conversation timestamps
+                                        message_id = db.add_message(
+                                            conversation_id=conversation_id,
+                                            role='assistant',
+                                            content=f'',
+                                            thinking=None,
+                                            images=[img_b64],  
+                                            attachment_filename=image_filename
+                                        )
+
+                                        if not message_id:
+                                            print("Failed to save image message to database")
+                                            # Log the error but don't fail the request
+                                            import traceback
+                                            traceback.print_exc()
+                                    except Exception as db_error:
+                                        print(f"Error saving image message to database: {db_error}")
+                                        # Log the full error details for debugging
                                         import traceback
                                         traceback.print_exc()
-                                except Exception as db_error:
-                                    print(f"Error saving image message to database: {db_error}")
-                                    # Log the full error details for debugging
-                                    import traceback
-                                    traceback.print_exc()
-                                    # Return a more informative error response
-                                    return jsonify({
-                                        'status': 'error',
-                                        'message': f'Failed to save image message: {str(db_error)}'
-                                    }), 500
+                                        # Return a more informative error response
+                                        return jsonify({
+                                            'status': 'error',
+                                            'message': f'Failed to save image message: {str(db_error)}'
+                                        }), 500
 
-                            return jsonify({
-                                'status': 'success', 
-                                'image_base64': img_b64, 
-                                'filename': image_filename,
-                                'workflow': workflow,
-                                'seed': seed  # Include the seed in the response
-                            })
+                                return jsonify({
+                                    'status': 'success', 
+                                    'image_base64': img_b64, 
+                                    'filename': image_filename,
+                                    'workflow': workflow,
+                                    'seed': seed  # Include the seed in the response
+                                })
 
                 # SD3 fallback - check output directory directly
                 output_files = [f for f in os.listdir(comfy_output_dir) 
@@ -2064,11 +2067,13 @@ def generate_image():
                 time.sleep(current_sleep)
                 current_sleep = min(current_sleep * backoff_factor, max_sleep)
                 
-    # If we've exhausted all attempts and still haven't found the image
-    return jsonify({
-        'status': 'error',
-        'message': 'Timed out waiting for image generation to complete'
-    }), 504
+    except Exception as e:
+        print(f"Generation failed: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Generation failed: {str(e)}',
+            'prompt_id': result.get('prompt_id')
+        }), 500
 
 # ============================================================
 # Bot Management API
