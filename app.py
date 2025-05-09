@@ -1866,12 +1866,21 @@ def generate_image():
     else:
         return jsonify({'status': 'error', 'message': 'No workflow specified'}), 400
         
-    print(f"Submitting to ComfyUI at {comfy_api_url} with payload...")
+    headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+
     try:
-        resp = requests.post(comfy_api_url, json={'prompt': comfyui_payload}, timeout=120)
+        resp = requests.post(
+            f"{comfy_api_url.rstrip('/')}/prompt",
+            json={'prompt': comfyui_payload},
+            headers=headers,
+            timeout=120
+        )
         resp.raise_for_status()
         result = resp.json()
-        print(f"ComfyUI response: {resp.status_code}, content: {resp.text}")
+        print(f"ComfyUI response: {resp.status_code}")
     except requests.exceptions.RequestException as e:
         error_msg = str(e)
         # Check for HTML response

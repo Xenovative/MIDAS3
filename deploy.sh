@@ -156,9 +156,9 @@ fi
 # 6. Firewall Configuration (firewalld)
 sudo systemctl start firewalld
 sudo systemctl enable firewalld
-sudo firewall-cmd --permanent --add-service=http
-sudo firewall-cmd --permanent --add-service=ssh # Ensure SSH is allowed
-sudo firewall-cmd --permanent --add-port=8188/tcp # Enable port 8188 for ComfyUI
+sudo firewall-cmd --permanent --zone=docker --add-service=http
+sudo firewall-cmd --permanent --zone=docker --add-service=ssh # Ensure SSH is allowed
+sudo firewall-cmd --permanent --zone=docker --add-port=8188/tcp # Enable port 8188 for ComfyUI
 sudo firewall-cmd --reload
 
 # 7. Data Directory
