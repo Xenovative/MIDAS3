@@ -931,33 +931,128 @@ def generate():
                 collection_names = [c.name for c in collections]
                 app.logger.info(f"[RAG] Available collections: {collection_names}")
                 
-                # Check if any collection has our XML data
-                for coll_name in collection_names:
-                    try:
-                        # Try to get document count
-                        vectorstore = rag.Chroma(
-                            persist_directory=rag.CHROMA_PERSIST_DIR, 
-                            embedding_function=rag.ollama_ef, 
-                            collection_name=coll_name
-                        )
-                        count = vectorstore._collection.count()
-                        app.logger.info(f"[RAG] Collection '{coll_name}' has {count} documents")
-                        
-                        # If this collection has documents, try using it
-                        if count > 0 and not retrieved_context:
-                            app.logger.info(f"[RAG] Trying collection '{coll_name}' with {count} documents")
-                            retrieval_start = time.time()
-                            alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
-                            retrieval_time = time.time() - retrieval_start
+                # Check for possible bot collection name variations
+                if bot_id:
+                    possible_bot_collections = [
+                        f"bot_{bot_id}",                # Standard format
+                        f"bot-{bot_id}",                # With hyphen
+                        bot_id,                         # Just the ID
+                        f"bot_{bot_id.replace('-', '_')}",  # Underscores instead of hyphens
+                        f"bot{bot_id}",                 # No separator
+                    ]
+                    
+                    app.logger.info(f"[RAG] Checking possible bot collection names: {possible_bot_collections}")
+                    
+                    # First check collections that might match our bot ID
+                    for coll_name in collection_names:
+                        if any(possible_name in coll_name for possible_name in possible_bot_collections):
+                            app.logger.info(f"[RAG] Found potential bot collection match: '{coll_name}'")
+                            try:
+                                # Try to get document count
+                                vectorstore = rag.Chroma(
+                                    persist_directory=rag.CHROMA_PERSIST_DIR, 
+                                    embedding_function=rag.ollama_ef, 
+                                    collection_name=coll_name
+                                )
+                                count = vectorstore._collection.count()
+                                app.logger.info(f"[RAG] Potential bot collection '{coll_name}' has {count} documents")
+                                
+                                # If this collection has documents, try using it
+                                if count > 0 and not retrieved_context:
+                                    app.logger.info(f"[RAG] Trying potential bot collection '{coll_name}' with {count} documents")
+                                    retrieval_start = time.time()
+                                    alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
+                                    retrieval_time = time.time() - retrieval_start
+                                    
+                                    if alt_context:
+                                        retrieved_context = alt_context
+                                        use_rag = True
+                                        app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from potential bot collection '{coll_name}' in {retrieval_time:.2f}s")
+                                        app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
+                                        break
+                            except Exception as ce:
+                                app.logger.error(f"[RAG] Error checking potential bot collection '{coll_name}': {str(ce)}")
+                
+                # If still no context, check all other collections
+                if not retrieved_context:
+                    app.logger.info(f"[RAG] Checking all remaining collections for relevant content")
+                    for coll_name in collection_names:
+                        # Skip collections we already checked
+                        if bot_id and any(possible_name in coll_name for possible_name in possible_bot_collections):
+                            continue
                             
-                            if alt_context:
-                                retrieved_context = alt_context
-                                use_rag = True
-                                app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from collection '{coll_name}' in {retrieval_time:.2f}s")
-                                app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
-                                break
-                    except Exception as ce:
-                        app.logger.error(f"[RAG] Error checking collection '{coll_name}': {str(ce)}")
+                        try:
+                            # Try to get document count
+                            vectorstore = rag.Chroma(
+                                persist_directory=rag.CHROMA_PERSIST_DIR, 
+                                embedding_function=rag.ollama_ef, 
+                                collection_name=coll_name
+                            )
+                            count = vectorstore._collection.count()
+                            app.logger.info(f"[RAG] Collection '{coll_name}' has {count} documents")
+                            
+                            # If this collection has documents, try using it
+                            if count > 0 and not retrieved_context:
+                                app.logger.info(f"[RAG] Trying collection '{coll_name}' with {count} documents")
+                                retrieval_start = time.time()
+                                alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
+                                retrieval_time = time.time() - retrieval_start
+                                
+                                if alt_context:
+                                    retrieved_context = alt_context
+                                    use_rag = True
+                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from collection '{coll_name}' in {retrieval_time:.2f}s")
+                                    app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
+                                    break
+                        except Exception as ce:
+                            app.logger.error(f"[RAG] Error checking collection '{coll_name}': {str(ce)}")
+                            
+                # Check for collections with large document counts (likely our XML data)
+                if not retrieved_context:
+                    app.logger.info(f"[RAG] Looking for collections with large document counts")
+                    large_collections = []
+                    
+                    for coll_name in collection_names:
+                        try:
+                            vectorstore = rag.Chroma(
+                                persist_directory=rag.CHROMA_PERSIST_DIR, 
+                                embedding_function=rag.ollama_ef, 
+                                collection_name=coll_name
+                            )
+                            count = vectorstore._collection.count()
+                            
+                            # If collection has more than 1000 documents, it's likely our XML data
+                            if count > 1000:
+                                large_collections.append((coll_name, count))
+                        except Exception:
+                            pass
+                    
+                    # Sort by document count (largest first)
+                    large_collections.sort(key=lambda x: x[1], reverse=True)
+                    app.logger.info(f"[RAG] Found {len(large_collections)} collections with >1000 documents: {large_collections}")
+                    
+                    # Try the largest collections first
+                    for coll_name, count in large_collections:
+                        if not retrieved_context:
+                            app.logger.info(f"[RAG] Trying large collection '{coll_name}' with {count} documents")
+                            try:
+                                retrieval_start = time.time()
+                                alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
+                                retrieval_time = time.time() - retrieval_start
+                                
+                                if alt_context:
+                                    retrieved_context = alt_context
+                                    use_rag = True
+                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from large collection '{coll_name}' in {retrieval_time:.2f}s")
+                                    app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
+                                    break
+                            except Exception as ce:
+                                app.logger.error(f"[RAG] Error checking large collection '{coll_name}': {str(ce)}")
+                                
+                # If we found a collection with our data, log it for future reference
+                if use_rag and bot_id:
+                    app.logger.info(f"[RAG] For future reference, bot {bot_id} should use collection '{coll_name}'")
+                    # TODO: We could store this mapping for future use
             except Exception as e:
                 app.logger.error(f"[RAG] Error listing collections: {str(e)}")
             
