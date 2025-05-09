@@ -1866,6 +1866,15 @@ def generate_image():
     else:
         return jsonify({'status': 'error', 'message': 'No workflow specified'}), 400
         
+    # Before prompt submission
+    print(f"Checking output directory: {comfy_output_dir}")
+    print(f"Directory exists: {os.path.exists(comfy_output_dir)}")
+    print(f"Directory writable: {os.access(comfy_output_dir, os.W_OK)}")
+
+    # Validate workflow has SaveImage node
+    if not any(node.get('class_type') == 'SaveImage' for node in comfyui_payload.values() if isinstance(node, dict)):
+        return jsonify({'status': 'error', 'message': 'Workflow missing SaveImage node'}), 400
+
     # Submit to ComfyUI
     comfyui_url = f"{comfy_api_url.rstrip('/')}/prompt"
     print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
@@ -1970,6 +1979,12 @@ def generate_image():
         'status': 'error',
         'message': 'Timed out waiting for image generation to complete'
     }), 504
+
+# After queue check
+    if result.get('prompt_id') not in running_prompts:
+        print("Generation complete, waiting 5s for file save...")
+        time.sleep(5)
+        outputs_resp = requests.get(f'{comfy_api_url.rstrip("/")}/history/{result.get("prompt_id")}', timeout=30)
 
 # ============================================================
 # Bot Management API
