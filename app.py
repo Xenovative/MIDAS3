@@ -1868,7 +1868,7 @@ def generate_image():
     # Submit to ComfyUI
     comfyui_url = f"{comfy_api_url}/prompt"
     print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
-    resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=120)
+    resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=900)
     print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
     resp.raise_for_status()
     result = resp.json()
