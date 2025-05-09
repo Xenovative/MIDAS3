@@ -126,7 +126,7 @@ After=network.target nginx.service
 User=root
 WorkingDirectory=$(pwd)
 EnvironmentFile=$(pwd)/.env
-ExecStart=$(pwd)/venv/bin/gunicorn -w 1 -k gevent -b 127.0.0.1:5000 --access-logfile - app:app
+ExecStart=$(pwd)/venv/bin/gunicorn -w 1 -k gevent -b 127.0.0.1:5000 --timeout 1800 --access-logfile - app:app
 Restart=always
 
 [Install]
