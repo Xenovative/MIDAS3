@@ -1873,11 +1873,17 @@ def generate_image():
         result = resp.json()
         print(f"ComfyUI response: {resp.status_code}, content: {resp.text}")
     except requests.exceptions.RequestException as e:
-        print(f"ComfyUI submission failed: {str(e)}")
+        error_msg = str(e)
+        # Check for HTML response
+        if hasattr(e.response, 'text') and e.response.text.strip().startswith('<'):
+            error_msg = "ComfyUI returned HTML error page - check server status"
+        
+        print(f"ComfyUI submission failed: {error_msg}")
         return jsonify({
             'status': 'error',
-            'message': f'ComfyUI submission failed: {str(e)}',
-            'comfyui_status': getattr(e.response, 'status_code', None)
+            'message': error_msg,
+            'comfyui_status': getattr(e.response, 'status_code', None),
+            'response_sample': e.response.text[:100] if hasattr(e.response, 'text') else None
         }), 500
 
     # Verify ComfyUI is actually processing the prompt
