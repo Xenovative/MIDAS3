@@ -1868,6 +1868,9 @@ def generate_image():
         
     # Submit to ComfyUI
     comfyui_url = f"{comfy_api_url.rstrip('/')}/prompt"
+    print(f"=== Starting image generation ===")
+    print(f"Prompt ID: {request_id}")
+    print(f"Output dir: {comfy_output_dir}")
     print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
     resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=120)
     print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
@@ -1882,7 +1885,10 @@ def generate_image():
     for attempt in range(max_attempts):
         # First check queue status
         queue_resp = requests.get(f'{comfy_api_url.rstrip("/")}/queue', timeout=30)
-        print(f"Queue check: {queue_resp.status_code}")
+        print(f"\n=== Queue Check ===")
+        print(f"Attempt {attempt + 1}/{max_attempts}")
+        print(f"Queue status - Running: {len(queue_resp.json().get('queue_running', []))}")
+        print(f"Queue status - Pending: {len(queue_resp.json().get('queue_pending', []))}")
         
         if queue_resp.status_code == 200:
             queue_data = queue_resp.json()
