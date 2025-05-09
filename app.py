@@ -2137,6 +2137,10 @@ def delete_bot(bot_id):
 def upload_knowledge_files(bot_id):
     """Upload knowledge files for a bot"""
     try:
+        app.logger.info(f'Upload request received for bot {bot_id}')
+        app.logger.info(f'Request files: {request.files}')
+        app.logger.info(f'Content length: {request.content_length}')
+
         bot = Bot.get(bot_id)
         if not bot:
             return jsonify({
