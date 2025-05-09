@@ -84,6 +84,8 @@ sudo bash -c 'cat > /etc/nginx/conf.d/midas.conf <<EOL
 server {
     listen 80;
     server_name _;
+    
+    client_max_body_size 100M;
 
     location / {
         proxy_pass http://127.0.0.1:5000;
