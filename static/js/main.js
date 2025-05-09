@@ -3333,6 +3333,7 @@ function initializeBotManagement() {
     const cancelBotEditButton = document.getElementById('cancel-bot-edit');
     const uploadKnowledgeButton = document.getElementById('upload-knowledge-button');
     const knowledgeFileInput = document.getElementById('knowledge-file-input');
+    const reindexKnowledgeBtn = document.getElementById('reindexKnowledgeBtn');
     
     // Temperature and Top-P sliders
     const temperatureSlider = document.getElementById('bot-temperature');
@@ -3356,6 +3357,50 @@ function initializeBotManagement() {
         loadBots();
     });
     
+    // Re-index knowledge button
+    if (reindexKnowledgeBtn) {
+        reindexKnowledgeBtn.addEventListener('click', async function() {
+            const botId = document.getElementById('bot-id').value;
+            if (!botId) {
+                showNotification('No bot selected', 'error');
+                return;
+            }
+            
+            try {
+                // Change button state to show it's processing
+                const button = this;
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Re-indexing...';
+                button.disabled = true;
+                
+                // Call the re-index API
+                const response = await fetch(`/api/bots/${botId}/reindex`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showNotification('Re-indexing started. This may take a few minutes.', 'success');
+                } else {
+                    showNotification(data.message || 'Failed to start re-indexing', 'error');
+                }
+            } catch (error) {
+                console.error('Error re-indexing knowledge:', error);
+                showNotification('Failed to start re-indexing', 'error');
+            } finally {
+                // Restore button state after 3 seconds
+                setTimeout(() => {
+                    button.innerHTML = '<i class="fas fa-sync"></i> Re-index Knowledge Files';
+                    button.disabled = false;
+                }, 3000);
+            }
+        });
+    }
+    
     // Close bot management modal
     closeBotModalButton.addEventListener('click', function() {
         botManagementModal.style.display = 'none';
@@ -3368,16 +3413,87 @@ function initializeBotManagement() {
         }
     });
     
-    // Show bot editor for creating a new bot
-    createNewBotButton.addEventListener('click', function() {
-        showBotEditor();
-    });
+    // Setup event listeners for the bot modal
+    function setupBotModalEvents() {
+        // Create new bot button
+        document.getElementById('create-new-bot-button').addEventListener('click', function() {
+            showBotEditor();
+            clearBotForm();
+        });
+        
+        // Re-index knowledge button
+        document.getElementById('reindexKnowledgeBtn').addEventListener('click', async function() {
+            const botId = document.getElementById('bot-id').value;
+            if (!botId) {
+                showNotification('error', 'No bot selected');
+                return;
+            }
+            
+            try {
+                // Change button state to show it's processing
+                const button = this;
+                const originalText = button.innerHTML;
+                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Re-indexing...';
+                button.disabled = true;
+                
+                // Call the re-index API
+                const response = await fetch(`/api/bots/${botId}/reindex`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showNotification('success', 'Re-indexing started. This may take a few minutes.');
+                } else {
+                    showNotification('error', data.message || 'Failed to start re-indexing');
+                }
+            } catch (error) {
+                console.error('Error re-indexing knowledge:', error);
+                showNotification('error', 'Failed to start re-indexing');
+            } finally {
+                // Restore button state after 3 seconds
+                setTimeout(() => {
+                    button.innerHTML = '<i class="fas fa-sync"></i> Re-index Knowledge Files';
+                    button.disabled = false;
+                }, 3000);
+            }
+        });
+        
+        // Go back to bot list
+        backToListButton.addEventListener('click', function() {
+            showBotList();
+        });
+        
+        // Cancel bot edit
+        cancelBotEditButton.addEventListener('click', function() {
+            showBotList();
+        });
+        
+        // Handle bot form submission
+        botForm.addEventListener('submit', function(event) {
+            event.preventDefault();
+            saveBot();
+        });
+        
+        // Handle knowledge file upload button
+        uploadKnowledgeButton.addEventListener('click', function() {
+            knowledgeFileInput.click();
+        });
+        
+        // Handle knowledge file selection
+        knowledgeFileInput.addEventListener('change', function() {
+            const botId = document.getElementById('bot-id').value;
+            if (botId && this.files.length > 0) {
+                uploadKnowledgeFiles(botId, this.files);
+            }
+        });
+    }
     
-    // Go back to bot list
-    backToListButton.addEventListener('click', function() {
-        showBotList();
-    });
-    
+    setupBotModalEvents();
     // Cancel bot edit
     cancelBotEditButton.addEventListener('click', function() {
         showBotList();

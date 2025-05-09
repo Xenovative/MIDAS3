@@ -846,41 +846,13 @@ def generate():
                             else:
                                 app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but no indexed documents in collection {bot_collection}")
                                 
-                                # Try to re-index the knowledge files
-                                app.logger.info(f"[RAG] Attempting to re-index knowledge files for bot {bot_id}")
-                                indexed_files = reindex_bot_knowledge(bot)
+                                # Skip re-indexing during chat to avoid timeouts
+                                app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but collection '{bot_collection}' has no documents")
+                                app.logger.info(f"[RAG] Skipping re-indexing during chat to avoid timeouts")
                                 
-                                if indexed_files:
-                                    app.logger.info(f"[RAG] Successfully re-indexed {len(indexed_files)} files for bot {bot_id}")
-                                    
-                                    # Now try to retrieve context again
-                                    try:
-                                        # Check if we now have documents
-                                        vectorstore = rag.Chroma(
-                                            persist_directory=rag.CHROMA_PERSIST_DIR, 
-                                            embedding_function=rag.ollama_ef, 
-                                            collection_name=bot_collection
-                                        )
-                                        count = vectorstore._collection.count()
-                                        app.logger.info(f"[RAG] After re-indexing, bot collection '{bot_collection}' has {count} documents")
-                                        
-                                        if count > 0:
-                                            app.logger.info(f"[RAG] Querying re-indexed bot knowledge with: '{user_message[:100]}...'")
-                                            retrieval_start = time.time()
-                                            bot_context = rag.retrieve_context(user_message, collection_name=bot_collection)
-                                            retrieval_time = time.time() - retrieval_start
-                                            
-                                            if bot_context:
-                                                retrieved_context = bot_context
-                                                use_rag = True
-                                                app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from re-indexed bot knowledge in {retrieval_time:.2f}s")
-                                                app.logger.info(f"[RAG] Re-indexed bot knowledge sample: '{retrieved_context[:200]}...'")
-                                            else:
-                                                app.logger.info(f"[RAG] No relevant context found in re-indexed bot knowledge base")
-                                    except Exception as re:
-                                        app.logger.error(f"[RAG] Error querying re-indexed knowledge: {str(re)}")
-                                else:
-                                    app.logger.info(f"[RAG] Failed to re-index knowledge files for bot {bot_id}")
+                                # Log recommendation for admin
+                                app.logger.warning(f"[RAG] ADMIN ACTION NEEDED: Bot {bot_id} needs re-indexing of knowledge files")
+                                app.logger.warning(f"[RAG] Run the following API call to re-index: POST /api/bots/{bot_id}/reindex")
                         except Exception as e:
                             app.logger.error(f"[RAG] Error checking bot collection: {str(e)}")
                             app.logger.info(f"[RAG] Falling back to has_documents check")
@@ -2796,6 +2768,138 @@ def delete_knowledge_file(bot_id, filename):
         return jsonify({
             'status': 'success',
             'message': 'File deleted successfully',
+            'bot': bot.to_dict()
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/bots/<bot_id>/reindex', methods=['POST'])
+@login_required
+@admin_required
+def reindex_bot_knowledge_files(bot_id):
+    """Re-index all knowledge files for a bot"""
+    try:
+        bot = Bot.get(bot_id)
+        if not bot:
+            return jsonify({
+                'status': 'error',
+                'message': 'Bot not found'
+            }), 404
+            
+        if not bot.knowledge_files:
+            return jsonify({
+                'status': 'error',
+                'message': 'Bot has no knowledge files to index'
+            }), 400
+            
+        # Function to re-index knowledge files
+        def do_reindex():
+            try:
+                app.logger.info(f"Re-indexing knowledge files for bot {bot.id}")
+                kb_dir = bot.get_knowledge_base_path()
+                collection_name = f"bot_{bot.id}"
+                
+                # Clear existing collection if it exists
+                try:
+                    from chromadb.config import Settings
+                    import chromadb
+                    client = chromadb.PersistentClient(path=rag.CHROMA_PERSIST_DIR)
+                    
+                    # Delete collection if it exists
+                    try:
+                        client.delete_collection(name=collection_name)
+                        app.logger.info(f"Deleted existing collection '{collection_name}'")
+                    except Exception as e:
+                        app.logger.info(f"Collection '{collection_name}' doesn't exist or couldn't be deleted: {e}")
+                except Exception as e:
+                    app.logger.error(f"Error accessing Chroma client: {e}")
+                
+                # Process each file
+                indexed_files = []
+                total_chunks = 0
+                
+                for filename in bot.knowledge_files:
+                    try:
+                        file_path = os.path.join(kb_dir, secure_filename(filename))
+                        if not os.path.exists(file_path):
+                            app.logger.warning(f"File {filename} not found at {file_path}")
+                            continue
+                            
+                        # Select appropriate loader
+                        if filename.endswith('.pdf'):
+                            loader = PyPDFLoader(file_path)
+                        elif filename.endswith('.xml'):
+                            loader = UnstructuredXMLLoader(file_path)
+                        elif filename.endswith('.md'):
+                            loader = UnstructuredMarkdownLoader(file_path)
+                        else:  # .txt
+                            loader = TextLoader(file_path)
+                        
+                        # Load and process documents
+                        app.logger.info(f"Loading {filename} for indexing")
+                        documents = loader.load()
+                        
+                        # Add metadata
+                        for doc in documents:
+                            if not hasattr(doc, 'metadata') or not doc.metadata:
+                                doc.metadata = {}
+                            doc.metadata['source'] = file_path
+                            doc.metadata['filename'] = filename
+                            doc.metadata['bot_id'] = bot.id
+                        
+                        # Split documents
+                        text_splitter = rag.RecursiveCharacterTextSplitter(
+                            chunk_size=rag.CHUNK_SIZE, 
+                            chunk_overlap=rag.CHUNK_OVERLAP
+                        )
+                        split_docs = text_splitter.split_documents(documents)
+                        app.logger.info(f"Split {filename} into {len(split_docs)} chunks")
+                        
+                        # Process in batches to avoid memory issues
+                        batch_size = 500
+                        for i in range(0, len(split_docs), batch_size):
+                            batch_end = min(i + batch_size, len(split_docs))
+                            current_batch = split_docs[i:batch_end]
+                            
+                            # Add to vector store
+                            vectorstore = rag.Chroma(
+                                persist_directory=rag.CHROMA_PERSIST_DIR, 
+                                embedding_function=rag.ollama_ef, 
+                                collection_name=collection_name
+                            )
+                            vectorstore.add_documents(current_batch)
+                            vectorstore.persist()
+                            
+                            app.logger.info(f"Indexed batch {i//batch_size + 1}/{(len(split_docs) + batch_size - 1)//batch_size} for {filename}")
+                        
+                        total_chunks += len(split_docs)
+                        indexed_files.append(filename)
+                        app.logger.info(f"Successfully indexed {filename}")
+                    except Exception as e:
+                        app.logger.error(f"Error indexing {filename}: {str(e)}")
+                
+                return {
+                    'indexed_files': indexed_files,
+                    'total_chunks': total_chunks
+                }
+            except Exception as e:
+                app.logger.error(f"Error in re-indexing: {str(e)}")
+                return {
+                    'error': str(e)
+                }
+        
+        # Start re-indexing in a background thread to avoid blocking the response
+        import threading
+        thread = threading.Thread(target=do_reindex)
+        thread.daemon = True
+        thread.start()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'Re-indexing started for {len(bot.knowledge_files)} files',
             'bot': bot.to_dict()
         })
     except Exception as e:
