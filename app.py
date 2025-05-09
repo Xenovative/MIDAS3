@@ -695,19 +695,44 @@ def generate():
         
         # If no conversation documents or no results, check bot's knowledge base
         if not secret and not retrieved_context:
+            # Debug request data
+            app.logger.info(f"[RAG] Request data: bot_id={bot_id}, conversation_id={conversation_id}")
+            app.logger.info(f"[RAG] Full request data: {data}")
+            
             # First check if bot_id is provided in the request
             if bot_id:
+                app.logger.info(f"[RAG] Using bot_id from request: {bot_id}")
                 bot_collection = f"bot_{bot_id}"
             else:
                 # If no bot_id in request, try to get the bot associated with this conversation
                 try:
+                    app.logger.info(f"[RAG] No bot_id in request, checking conversation {conversation_id}")
                     conversation = db.get_conversation(conversation_id)
+                    app.logger.info(f"[RAG] Conversation data: {conversation}")
+                    
                     if conversation and 'bot_id' in conversation:
                         bot_id = conversation['bot_id']
                         bot_collection = f"bot_{bot_id}"
                         app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id}")
                     else:
-                        bot_collection = None
+                        app.logger.info(f"[RAG] No bot associated with conversation {conversation_id}")
+                        
+                        # Try to find any bot with knowledge files as fallback
+                        try:
+                            app.logger.info(f"[RAG] Trying to find any bot with knowledge files")
+                            all_bots = Bot.get_all()
+                            for b in all_bots:
+                                if b.knowledge_files:
+                                    bot_id = b.id
+                                    bot_collection = f"bot_{bot_id}"
+                                    app.logger.info(f"[RAG] Found bot {bot_id} with knowledge files as fallback")
+                                    break
+                            else:
+                                bot_collection = None
+                                app.logger.info(f"[RAG] No bots with knowledge files found")
+                        except Exception as be:
+                            app.logger.error(f"[RAG] Error finding bots: {str(be)}")
+                            bot_collection = None
                 except Exception as e:
                     app.logger.error(f"[RAG] Error getting conversation bot: {str(e)}")
                     bot_collection = None
@@ -794,8 +819,49 @@ def generate():
                 except Exception as e:
                     app.logger.error(f"[RAG] Error checking bot knowledge: {str(e)}")
         
+        # If still no RAG context found, do a direct check of all collections
         if not use_rag:
-            app.logger.info(f"[RAG] No documents found in conversation or bot knowledge, skipping RAG")
+            try:
+                # Try to directly list all collections
+                from chromadb.config import Settings
+                import chromadb
+                client = chromadb.PersistentClient(path=rag.CHROMA_PERSIST_DIR)
+                collections = client.list_collections()
+                collection_names = [c.name for c in collections]
+                app.logger.info(f"[RAG] Available collections: {collection_names}")
+                
+                # Check if any collection has our XML data
+                for coll_name in collection_names:
+                    try:
+                        # Try to get document count
+                        vectorstore = rag.Chroma(
+                            persist_directory=rag.CHROMA_PERSIST_DIR, 
+                            embedding_function=rag.ollama_ef, 
+                            collection_name=coll_name
+                        )
+                        count = vectorstore._collection.count()
+                        app.logger.info(f"[RAG] Collection '{coll_name}' has {count} documents")
+                        
+                        # If this collection has documents, try using it
+                        if count > 0 and not retrieved_context:
+                            app.logger.info(f"[RAG] Trying collection '{coll_name}' with {count} documents")
+                            retrieval_start = time.time()
+                            alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
+                            retrieval_time = time.time() - retrieval_start
+                            
+                            if alt_context:
+                                retrieved_context = alt_context
+                                use_rag = True
+                                app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from collection '{coll_name}' in {retrieval_time:.2f}s")
+                                app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
+                                break
+                    except Exception as ce:
+                        app.logger.error(f"[RAG] Error checking collection '{coll_name}': {str(ce)}")
+            except Exception as e:
+                app.logger.error(f"[RAG] Error listing collections: {str(e)}")
+            
+            if not use_rag:
+                app.logger.info(f"[RAG] No documents found in conversation or bot knowledge, skipping RAG")
         # --- End RAG Integration ---
         
         # --- Chat History Integration ---
@@ -858,7 +924,27 @@ def generate():
         
         # Add system prompt first if it exists
         system_prompt = data.get('system_prompt', '')
-        if system_prompt:
+        
+        # If we have RAG context, add it to the system prompt
+        if use_rag and retrieved_context:
+            if system_prompt:
+                # Append RAG context to existing system prompt
+                enhanced_system_prompt = f"{system_prompt}\n\nKnowledge Base Information:\n{retrieved_context}"
+            else:
+                # Create new system prompt with RAG context
+                enhanced_system_prompt = f"You have access to the following knowledge base information. Use it to answer the user's question accurately:\n\n{retrieved_context}"
+                
+            # Log the enhanced system prompt
+            app.logger.info(f"[RAG] Enhanced system prompt with {len(retrieved_context)} characters of knowledge")
+            
+            # Add the enhanced system prompt
+            system_msg = {
+                "role": "system",
+                "content": enhanced_system_prompt
+            }
+            messages.append(system_msg)
+        elif system_prompt:
+            # Add original system prompt if no RAG context
             system_msg = {
                 "role": "system",
                 "content": system_prompt
