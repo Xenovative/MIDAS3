@@ -256,26 +256,17 @@ def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conve
     try:
         contexts = []
         
-        # Check bot collection first (primary knowledge base)
-        if bot_id:
-            bot_collection = f"bot_{bot_id}"
-            app.logger.info(f"Querying bot collection: {bot_collection}")
-            bot_docs = _get_docs_from_collection(query, bot_collection, k)
-            if bot_docs:
-                contexts.append(bot_docs)
-        
-        # Check conversation collection (temporary context)
+        # Check conversation collection first
         if conversation_id:
             conv_collection = get_conversation_collection_name(conversation_id)
-            app.logger.info(f"Querying conversation collection: {conv_collection}")
-            conv_docs = _get_docs_from_collection(query, conv_collection, k)
-            if conv_docs:
-                contexts.append(conv_docs)
-        
-        combined = "\n\n".join(contexts)
-        doc_count = len(combined.split('\n\n')) if combined else 0
-        app.logger.info(f"Found {doc_count} relevant document chunks")
-        return combined
+            contexts.append(_get_docs_from_collection(query, conv_collection, k))
+            
+        # Check bot collection
+        if bot_id:
+            bot_collection = f"bot_{bot_id}"
+            contexts.append(_get_docs_from_collection(query, bot_collection, k))
+            
+        return "\n\n".join(filter(None, contexts))
     except Exception as e:
         app.logger.error(f"Document retrieval failed: {str(e)}", exc_info=True)
         return ""
@@ -323,36 +314,36 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         return ""
 
 def generate_response(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
-    """Generate response using context from both collections"""
+    """Returns dict with 'response' and 'context_docs'"""
     try:
-        # Get combined context from both collections
-        context = get_relevant_documents(
-            query,
-            collection_name=collection_name,
-            conversation_id=conversation_id,
-            bot_id=bot_id
-        )
+        context_docs = []
         
-        if not context:
-            app.logger.info("No relevant documents found, using direct response")
-            return ollama.generate(model='llama2', prompt=query)['response']
-            
-        prompt = f"""Answer the question using the following context:
-        {context}
+        # Get docs from both collections
+        if conversation_id:
+            conv_collection = get_conversation_collection_name(conversation_id)
+            docs = _get_docs_from_collection(query, conv_collection, 3)
+            if docs:
+                context_docs.extend(docs.split('\n\n'))
+                
+        if bot_id:
+            bot_collection = f"bot_{bot_id}"
+            docs = _get_docs_from_collection(query, bot_collection, 3)
+            if docs:
+                context_docs.extend(docs.split('\n\n'))
         
-        Question: {query}
-        Answer:"""
-        
+        # Generate response
+        context = '\n\n'.join(context_docs)
         response = ollama.generate(
             model='llama2',
-            prompt=prompt
+            prompt=f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
         )
         
-        app.logger.info(f"Generated response using {len(context.split('\\n\\n'))} context docs")
-        return response['response']
-        
+        return {
+            'response': response['response'],
+            'context_docs': context_docs
+        }
     except Exception as e:
-        app.logger.error(f"Response generation failed: {str(e)}", exc_info=True)
+        app.logger.error(f"RAG generation failed: {str(e)}", exc_info=True)
         raise
 
 def get_debug_info(collection_name):

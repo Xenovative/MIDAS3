@@ -1659,10 +1659,11 @@ def chat():
         if use_rag:
             response = rag.generate_response(
                 message,
-                collection_name=collection_name,
                 conversation_id=conversation_id,
-                bot_id=str(bot.id)  # Pass bot_id here
+                bot_id=str(bot.id),
+                collection_name=collection_name
             )
+            app.logger.info(f"Used RAG with {len(response.context_docs)} context docs")
         else:
             response = ollama.generate_response(message)
             
