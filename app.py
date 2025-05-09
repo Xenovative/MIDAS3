@@ -28,6 +28,7 @@ app = Flask(__name__,
            template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
            static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 app.secret_key = 'CHANGE_THIS_TO_A_RANDOM_SECRET_KEY'
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB limit
 
 # Configure logging
 if not os.path.exists('logs'):
