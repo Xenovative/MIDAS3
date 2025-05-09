@@ -1931,18 +1931,26 @@ def generate_image():
 
     try:
         for attempt in range(max_attempts):
-            # File monitoring only
-            if attempt % 3 == 0:
-                try:
-                    files = sorted([f for f in os.listdir(comfy_output_dir) 
-                                  if f.startswith('MIDAS_Flux_Enhanced')],
-                                 key=lambda f: os.path.getmtime(os.path.join(comfy_output_dir, f)))
-                    if files:
-                        current_file = os.path.join(comfy_output_dir, files[-1])
-                        current_size = os.path.getsize(current_file)
-                        print(f"Latest file: {files[-1]} ({current_size} bytes)")
-                except Exception as e:
-                    print(f"File check error: {str(e)[:100]}")
+            # Initial delay before checking
+            initial_delay = 100  # seconds
+            if attempt == 0:
+                print(f"Waiting initial {initial_delay}s delay before checking for images...")
+                time.sleep(initial_delay)
+                continue
+
+            # Only check files after initial delay
+            if attempt >= (initial_delay // base_sleep):
+                if attempt % 3 == 0:
+                    try:
+                        files = sorted([f for f in os.listdir(comfy_output_dir) 
+                                      if f.startswith('MIDAS_Flux_Enhanced')],
+                                     key=lambda f: os.path.getmtime(os.path.join(comfy_output_dir, f)))
+                        if files:
+                            current_file = os.path.join(comfy_output_dir, files[-1])
+                            current_size = os.path.getsize(current_file)
+                            print(f"Latest file: {files[-1]} ({current_size} bytes)")
+                    except Exception as e:
+                        print(f"File check error: {str(e)[:100]}")
 
             # Rest of polling logic...
             print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {attempt + 1}/{max_attempts})")
