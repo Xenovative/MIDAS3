@@ -1743,8 +1743,41 @@ def upload_file():
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def chat():
-    """Legacy chat endpoint"""
-    return generate()
+    """Handle chat messages with RAG when bot has knowledge base"""
+    try:
+        data = request.json
+        conversation_id = data.get('conversation_id')
+        message = data.get('message')
+        bot_id = data.get('bot_id')
+        
+        if not message:
+            return jsonify({'status': 'error', 'message': 'No message provided'}), 400
+            
+        # Get bot and check for knowledge base
+        bot = Bot.get(bot_id) if bot_id else None
+        use_rag = bot and bot.knowledge_files
+        
+        app.logger.info(f"Chat request - Bot: {bot_id}, KB: {use_rag}, Conv: {conversation_id}")
+        
+        if use_rag:
+            # Use RAG with bot's knowledge base
+            response = rag.generate_response(
+                message,
+                conversation_id=conversation_id,
+                collection_name=bot.get_knowledge_base_collection()
+            )
+        else:
+            # Fallback to direct LLM response
+            response = ollama.generate_response(message)
+            
+        return jsonify({
+            'status': 'success',
+            'response': response,
+            'used_knowledge_base': use_rag
+        })
+    except Exception as e:
+        app.logger.error(f"Chat error: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 # ============================================================
 # Image Generation API (ComfyUI Integration)
