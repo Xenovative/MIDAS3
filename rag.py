@@ -251,45 +251,48 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None,
         app.logger.error(f"Document check failed: {str(e)}", exc_info=True)
         return False
 
-def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None, k=3):
-    """
-    Retrieve relevant documents for a query from the vector store
-    Returns concatenated document contents as context string
-    """
+def _get_docs_from_collection(query, collection_name, k):
+    """Helper to get docs from a single collection"""
     try:
-        # Use conversation-specific collection if provided
-        if conversation_id:
-            collection_name = get_conversation_collection_name(conversation_id)
-            
-        # Load vector store
         vectorstore = Chroma(
             persist_directory=CHROMA_PERSIST_DIR,
             embedding_function=ollama_ef,
             collection_name=collection_name
         )
-        
-        # Get relevant documents
         docs = vectorstore.similarity_search(query, k=k)
-        
-        # Log retrieval results
-        print(f"Retrieved {len(docs)} documents for query: {query[:50]}...")
-        if docs:
-            print(f"First document content: {docs[0].page_content[:100]}...")
-        
-        # Combine document contents
         return "\n\n".join([doc.page_content for doc in docs])
-        
     except Exception as e:
-        print(f"Error retrieving documents: {e}")
+        app.logger.error(f"Failed to get docs from {collection_name}: {str(e)}")
         return ""
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=3):
+def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None, k=3):
+    """Retrieve docs from both conversation and bot collections"""
+    try:
+        contexts = []
+        
+        # Check conversation collection first
+        if conversation_id:
+            conv_collection = get_conversation_collection_name(conversation_id)
+            contexts.append(_get_docs_from_collection(query, conv_collection, k))
+            
+        # Check bot collection
+        if bot_id:
+            bot_collection = f"bot_{bot_id}"
+            contexts.append(_get_docs_from_collection(query, bot_collection, k))
+            
+        return "\n\n".join(filter(None, contexts))
+    except Exception as e:
+        app.logger.error(f"Document retrieval failed: {str(e)}", exc_info=True)
+        return ""
+
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None, n_results=3):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
         query: The query to search for
         collection_name: Name of the collection to search in
         conversation_id: If provided, will search in a conversation-specific collection
+        bot_id: If provided, will search in a bot-specific collection
         n_results: Number of results to return
         
     Returns:
@@ -325,14 +328,14 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         return ""
 
 def generate_response(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
-    """Generate response using either conversation or bot context"""
+    """
+    Generate a response using RAG by:
+    1. Retrieving relevant documents
+    2. Formatting context
+    3. Generating LLM response
+    """
     try:
-        context = get_relevant_documents(
-            query,
-            collection_name=collection_name,
-            conversation_id=conversation_id,
-            bot_id=bot_id
-        )
+        context = get_relevant_documents(query, collection_name, conversation_id, bot_id)
         
         prompt = f"""Use this context to answer:
         {context}

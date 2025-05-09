@@ -1660,7 +1660,8 @@ def chat():
             response = rag.generate_response(
                 message,
                 collection_name=collection_name,
-                conversation_id=conversation_id
+                conversation_id=conversation_id,
+                bot_id=str(bot.id)  # Pass bot_id here
             )
         else:
             response = ollama.generate_response(message)
