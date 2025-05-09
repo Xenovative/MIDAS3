@@ -2251,6 +2251,20 @@ def upload_knowledge_files(bot_id):
                 
                 # Process and index the file
                 try:
+                    # Initialize processing stats if not already done
+                    if not hasattr(app, 'processing_stats'):
+                        app.processing_stats = {}
+                    if bot_id not in app.processing_stats:
+                        app.processing_stats[bot_id] = {
+                            'total_chunks': 0,
+                            'processing_time': 0,
+                            'file_stats': []
+                        }
+                    
+                    # Start timing the processing
+                    start_time = time.time()
+                    
+                    # Select appropriate loader based on file extension
                     if filename.endswith('.pdf'):
                         loader = PyPDFLoader(file_path)
                     elif filename.endswith('.xml'):
@@ -2259,7 +2273,9 @@ def upload_knowledge_files(bot_id):
                         loader = UnstructuredMarkdownLoader(file_path)
                     else:  # .txt
                         loader = TextLoader(file_path)
-                        
+                    
+                    # Load documents
+                    app.logger.info(f'Loading {filename}...')
                     documents = loader.load()
                     
                     # Index documents in bot's knowledge base collection
@@ -2267,6 +2283,7 @@ def upload_knowledge_files(bot_id):
                     app.logger.info(f'Indexing {len(documents)} documents from {filename} in collection {collection_name}')
                     
                     # Split documents into chunks
+                    app.logger.info(f'Splitting {filename} into chunks...')
                     text_splitter = rag.RecursiveCharacterTextSplitter(
                         chunk_size=rag.CHUNK_SIZE, 
                         chunk_overlap=rag.CHUNK_OVERLAP
@@ -2277,19 +2294,39 @@ def upload_knowledge_files(bot_id):
                     # Add to vector store
                     try:
                         # Load existing or create new vector store
+                        app.logger.info(f'Loading vector store for {filename}...')
                         vectorstore = rag.Chroma(
                             persist_directory=rag.CHROMA_PERSIST_DIR, 
                             embedding_function=rag.ollama_ef, 
                             collection_name=collection_name
                         )
+                        
+                        # Add documents to vector store
+                        app.logger.info(f'Adding {len(split_docs)} chunks to vector store...')
                         vectorstore.add_documents(split_docs)
+                        
+                        # Persist to disk
+                        app.logger.info(f'Persisting vector store...')
                         vectorstore.persist()
                         app.logger.info(f'Successfully indexed {len(split_docs)} chunks in bot knowledge base')
                     except Exception as ve:
                         app.logger.error(f'Error indexing in vector store: {str(ve)}')
                         raise
-                        
-                    app.logger.info(f'Processed {len(documents)} documents from {filename}')
+                    
+                    # Calculate processing time
+                    processing_time = time.time() - start_time
+                    
+                    # Update processing stats
+                    app.processing_stats[bot_id]['total_chunks'] += len(split_docs)
+                    app.processing_stats[bot_id]['processing_time'] += processing_time
+                    app.processing_stats[bot_id]['file_stats'].append({
+                        'filename': filename,
+                        'chunks': len(split_docs),
+                        'processing_time': processing_time,
+                        'size_kb': os.path.getsize(file_path) / 1024
+                    })
+                    
+                    app.logger.info(f'Processed {len(documents)} documents from {filename} in {processing_time:.2f} seconds')
                 except Exception as e:
                     app.logger.error(f'Error processing file {filename}: {str(e)}')
                     if os.path.exists(file_path):
@@ -2306,11 +2343,31 @@ def upload_knowledge_files(bot_id):
         bot.knowledge_files = list(set(bot.knowledge_files + saved_files))
         bot.save()
 
+        # Calculate processing stats
+        total_chunks = 0
+        processing_time = 0
+        file_stats = []
+        
+        # Get stats from the app context if available
+        if hasattr(app, 'processing_stats') and bot_id in app.processing_stats:
+            stats = app.processing_stats[bot_id]
+            total_chunks = stats.get('total_chunks', 0)
+            processing_time = stats.get('processing_time', 0)
+            file_stats = stats.get('file_stats', [])
+            
+            # Clear the stats after retrieving
+            del app.processing_stats[bot_id]
+        
         return jsonify({
             'status': 'success',
             'message': f'{len(saved_files)} files uploaded',
             'bot': bot.to_dict(),
-            'saved_files': saved_files
+            'saved_files': saved_files,
+            'processing_stats': {
+                'total_chunks': total_chunks,
+                'processing_time': processing_time,
+                'file_stats': file_stats
+            }
         })
 
     except Exception as e:

@@ -13,6 +13,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="/static/css/quota-modal.css">
     <link rel="stylesheet" href="/static/css/auth.css">
+    <link rel="stylesheet" href="/static/css/processing-progress.css">
     <style>
         /* Global styles */
         * {
@@ -4138,9 +4139,25 @@
                                         <label>Knowledge Base</label>
                                         <div class="knowledge-base-selector">
                                             <div class="file-upload-container">
-                                                <input type="file" id="knowledge-file-input" multiple accept=".txt,.pdf,.docx,.md">
+                                                <input type="file" id="knowledge-file-input" multiple accept=".txt,.pdf,.md,.xml">
                                                 <button type="button" id="upload-knowledge-button" class="secondary-button">Upload Files</button>
                                             </div>
+                                            
+                                            <!-- Document Processing Progress Indicator -->
+                                            <div id="processing-progress" class="processing-progress">
+                                                <h4 class="progress-status">Processing documents...</h4>
+                                                <div class="progress-bar-container">
+                                                    <div class="progress-bar"></div>
+                                                </div>
+                                                <div class="progress-stats">
+                                                    <span>Chunks processed: <span class="chunks-processed">0</span></span>
+                                                    <span>Processing time: <span class="processing-time">0</span>s</span>
+                                                </div>
+                                                <div class="file-progress-list">
+                                                    <!-- File progress items will be added here -->
+                                                </div>
+                                            </div>
+                                            
                                             <div id="knowledge-files-list" class="knowledge-files-list">
                                                 <!-- Knowledge files will be listed here -->
                                             </div>

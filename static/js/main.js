@@ -3795,22 +3795,94 @@ async function uploadKnowledgeFiles(botId, files) {
         return;
     }
 
+    // Show progress container
+    const progressContainer = document.getElementById('processing-progress');
+    if (progressContainer) {
+        progressContainer.classList.add('active');
+        progressContainer.querySelector('.progress-bar').style.width = '0%';
+        progressContainer.querySelector('.progress-status').textContent = 'Uploading files...';
+        progressContainer.querySelector('.file-progress-list').innerHTML = '';
+    }
+
     const formData = new FormData();
     
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
+        
+        // Add file to progress list
+        if (progressContainer) {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-progress-item';
+            fileItem.innerHTML = `
+                <div class="file-progress-name">${files[i].name}</div>
+                <div class="file-progress-details">
+                    <span>Size: ${(files[i].size / 1024).toFixed(1)} KB</span>
+                    <span>Status: Uploading</span>
+                </div>
+            `;
+            progressContainer.querySelector('.file-progress-list').appendChild(fileItem);
+        }
     }
     
     try {
+        // Update progress bar to 10% for upload start
+        if (progressContainer) {
+            progressContainer.querySelector('.progress-bar').style.width = '10%';
+        }
+        
         const response = await fetch(`/api/bots/${botId}/knowledge`, {
             method: 'POST',
             body: formData
         });
         
+        // Update progress bar to 50% for upload complete
+        if (progressContainer) {
+            progressContainer.querySelector('.progress-bar').style.width = '50%';
+            progressContainer.querySelector('.progress-status').textContent = 'Processing documents...';
+        }
+        
         const data = await response.json();
         
         if (data.status === 'success') {
-            showNotification('Knowledge files uploaded successfully');
+            // Update progress with processing stats
+            if (progressContainer && data.processing_stats) {
+                const stats = data.processing_stats;
+                
+                // Update progress bar to 100%
+                progressContainer.querySelector('.progress-bar').style.width = '100%';
+                progressContainer.querySelector('.progress-status').textContent = 'Processing complete!';
+                
+                // Update stats
+                progressContainer.querySelector('.chunks-processed').textContent = stats.total_chunks;
+                progressContainer.querySelector('.processing-time').textContent = stats.processing_time.toFixed(1);
+                
+                // Update file progress items
+                if (stats.file_stats && stats.file_stats.length > 0) {
+                    const fileList = progressContainer.querySelector('.file-progress-list');
+                    fileList.innerHTML = '';
+                    
+                    stats.file_stats.forEach(fileStat => {
+                        const fileItem = document.createElement('div');
+                        fileItem.className = 'file-progress-item';
+                        fileItem.innerHTML = `
+                            <div class="file-progress-name">${fileStat.filename}</div>
+                            <div class="file-progress-details">
+                                <span>Size: ${fileStat.size_kb.toFixed(1)} KB</span>
+                                <span>Chunks: ${fileStat.chunks}</span>
+                                <span>Time: ${fileStat.processing_time.toFixed(1)}s</span>
+                            </div>
+                        `;
+                        fileList.appendChild(fileItem);
+                    });
+                }
+                
+                // Hide progress after 5 seconds
+                setTimeout(() => {
+                    progressContainer.classList.remove('active');
+                }, 5000);
+            }
+            
+            showNotification('Knowledge files uploaded and processed successfully');
             
             // Update knowledge files list
             const filesListContainer = document.getElementById('knowledge-files-list');
@@ -3824,6 +3896,11 @@ async function uploadKnowledgeFiles(botId, files) {
             // Clear file input
             document.getElementById('knowledge-file-input').value = '';
         } else {
+            // Hide progress container on error
+            if (progressContainer) {
+                progressContainer.classList.remove('active');
+            }
+            
             showNotification(`Error uploading knowledge files: ${data.message}`, 'error');
         }
     } catch (error) {
