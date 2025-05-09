@@ -1866,6 +1866,11 @@ def generate_image():
     else:
         return jsonify({'status': 'error', 'message': 'No workflow specified'}), 400
         
+    comfy_output_dir = "/MIDAS_standalone/ComfyUI/output"
+    if not os.path.exists(comfy_output_dir):
+        os.makedirs(comfy_output_dir, exist_ok=True)
+        print(f"Created output directory: {comfy_output_dir}")
+
     headers = {
         'Content-Type': 'application/json',
         'Accept': 'application/json'

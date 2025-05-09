@@ -162,7 +162,16 @@ sudo firewall-cmd --permanent --zone=docker --add-port=8188/tcp # Enable port 81
 sudo firewall-cmd --reload
 
 # 7. Data Directory
-mkdir -p data
+echo "Creating data directories..."
+sudo mkdir -p $INSTALL_DIR/data/uploads
+sudo mkdir -p $INSTALL_DIR/data/conversations
+sudo mkdir -p $INSTALL_DIR/data/models
+
+# ComfyUI output directory
+echo "Creating ComfyUI output directory..."
+sudo mkdir -p /MIDAS_standalone/ComfyUI/output
+sudo chown -R $USER:$USER /MIDAS_standalone
+sudo chmod -R 755 /MIDAS_standalone
 
 # 8. Initial Setup Complete
 echo "╔══════════════════════════════════════════════╗"
