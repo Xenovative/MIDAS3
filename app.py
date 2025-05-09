@@ -720,27 +720,77 @@ def generate():
                     if bot and bot.knowledge_files:
                         app.logger.info(f"[RAG] Checking bot {bot_id} knowledge base with {len(bot.knowledge_files)} files")
                         
-                        # Check if bot has knowledge base documents
-                        if rag.has_documents(collection_name=bot_collection):
-                            app.logger.info(f"[RAG] Documents found for bot {bot_id}, using bot RAG")
-                            use_rag = True
+                        # Debug collection name
+                        app.logger.info(f"[RAG] Checking bot collection: {bot_collection}")
+                        
+                        # Force check for documents in the collection
+                        try:
+                            # Direct check with Chroma
+                            vectorstore = rag.Chroma(
+                                persist_directory=rag.CHROMA_PERSIST_DIR, 
+                                embedding_function=rag.ollama_ef, 
+                                collection_name=bot_collection
+                            )
+                            collection = vectorstore._collection
+                            count = collection.count()
+                            app.logger.info(f"[RAG] Bot collection '{bot_collection}' has {count} documents")
                             
-                            # Log RAG query details
-                            app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
-                            
-                            # Retrieve context from bot's knowledge base
-                            retrieval_start = time.time()
-                            bot_context = rag.retrieve_context(user_message, collection_name=bot_collection)
-                            retrieval_time = time.time() - retrieval_start
-                            
-                            if bot_context:
-                                retrieved_context = bot_context
-                                app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
-                                app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
+                            if count > 0:
+                                app.logger.info(f"[RAG] Documents found for bot {bot_id}, using bot RAG")
+                                use_rag = True
+                                
+                                # Log RAG query details
+                                app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
+                                
+                                # Retrieve context from bot's knowledge base
+                                retrieval_start = time.time()
+                                bot_context = rag.retrieve_context(user_message, collection_name=bot_collection)
+                                retrieval_time = time.time() - retrieval_start
+                                
+                                if bot_context:
+                                    retrieved_context = bot_context
+                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
+                                    app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
+                                else:
+                                    app.logger.info(f"[RAG] No relevant context found in bot's knowledge base despite {count} documents")
                             else:
-                                app.logger.info(f"[RAG] No relevant context found in bot's knowledge base")
-                        else:
-                            app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but no indexed documents in collection {bot_collection}")
+                                app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but no indexed documents in collection {bot_collection}")
+                        except Exception as e:
+                            app.logger.error(f"[RAG] Error checking bot collection: {str(e)}")
+                            app.logger.info(f"[RAG] Falling back to has_documents check")
+                            
+                            # Fallback to original check
+                            if rag.has_documents(collection_name=bot_collection):
+                                app.logger.info(f"[RAG] Documents found for bot {bot_id} using fallback check")
+                                use_rag = True
+                                
+                                # Log RAG query details
+                                app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
+                                
+                                # Retrieve context from bot's knowledge base
+                                retrieval_start = time.time()
+                                bot_context = rag.retrieve_context(user_message, collection_name=bot_collection)
+                                retrieval_time = time.time() - retrieval_start
+                                
+                                if bot_context:
+                                    retrieved_context = bot_context
+                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
+                                    app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
+                                else:
+                                    app.logger.info(f"[RAG] No relevant context found in bot's knowledge base")
+                            else:
+                                app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but no indexed documents in collection {bot_collection}")
+                                
+                                # Try to list all collections for debugging
+                                try:
+                                    from chromadb.config import Settings
+                                    import chromadb
+                                    client = chromadb.PersistentClient(path=rag.CHROMA_PERSIST_DIR)
+                                    collections = client.list_collections()
+                                    app.logger.info(f"[RAG] Available collections: {[c.name for c in collections]}")
+                                except Exception as ce:
+                                    app.logger.error(f"[RAG] Error listing collections: {str(ce)}")
+                        
                 except Exception as e:
                     app.logger.error(f"[RAG] Error checking bot knowledge: {str(e)}")
         
