@@ -1881,7 +1881,7 @@ def generate_image():
 
     for _ in range(max_attempts):
         print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {_ + 1}/{max_attempts})")
-        history_resp = requests.get(f'http://localhost:8188/history/{result.get("prompt_id")}', timeout=10)
+        history_resp = requests.get(f'http://localhost:8188/queue/{result.get("prompt_id")}', timeout=10)
         print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
         
         if history_resp.status_code == 200:
