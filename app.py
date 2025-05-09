@@ -42,6 +42,14 @@ app.config['MAX_CONTENT_PATH'] = 100 * 1024 * 1024  # 100MB
 # Configure request buffers
 app.config['REQUEST_BUFFER_SIZE'] = 100 * 1024 * 1024  # 100MB
 
+# Global progress tracking
+if not hasattr(app, 'indexing_progress'):
+    app.indexing_progress = {}
+    # Structure: {bot_id: {current: 0, total: 0, status: '', file: ''}}
+
+# Import for SSE
+from flask import Response, stream_with_context
+
 # Configure logging
 if not os.path.exists('logs'):
     os.makedirs('logs')
@@ -2301,14 +2309,43 @@ def upload_knowledge_files(bot_id):
                             collection_name=collection_name
                         )
                         
-                        # Add documents to vector store
-                        app.logger.info(f'Adding {len(split_docs)} chunks to vector store...')
-                        vectorstore.add_documents(split_docs)
+                        # Add documents to vector store in batches with progress updates
+                        total_chunks = len(split_docs)
+                        app.logger.info(f'Adding {total_chunks} chunks to vector store in batches...')
                         
-                        # Persist to disk
+                        # Process in batches of 500 chunks
+                        batch_size = 500
+                        for i in range(0, total_chunks, batch_size):
+                            batch_end = min(i + batch_size, total_chunks)
+                            current_batch = split_docs[i:batch_end]
+                            
+                            # Add this batch
+                            vectorstore.add_documents(current_batch)
+                            
+                            # Log progress
+                            progress_pct = min(100, int((batch_end / total_chunks) * 100))
+                            app.logger.info(f'Indexing progress: {batch_end}/{total_chunks} chunks ({progress_pct}%)')
+                            
+                            # Update global progress tracking
+                            if not hasattr(app, 'indexing_progress'):
+                                app.indexing_progress = {}
+                            app.indexing_progress[bot_id] = {
+                                'current': batch_end,
+                                'total': total_chunks,
+                                'percent': progress_pct,
+                                'file': filename,
+                                'status': 'indexing'
+                            }
+                            
+                            # Persist after each batch to avoid memory issues
+                            if batch_end % 2000 == 0 or batch_end == total_chunks:
+                                app.logger.info(f'Persisting vector store at {batch_end}/{total_chunks} chunks...')
+                                vectorstore.persist()
+                        
+                        # Final persist
                         app.logger.info(f'Persisting vector store...')
                         vectorstore.persist()
-                        app.logger.info(f'Successfully indexed {len(split_docs)} chunks in bot knowledge base')
+                        app.logger.info(f'Successfully indexed {total_chunks} chunks in bot knowledge base')
                     except Exception as ve:
                         app.logger.error(f'Error indexing in vector store: {str(ve)}')
                         raise
@@ -2413,6 +2450,55 @@ def delete_knowledge_file(bot_id, filename):
             'message': 'File deleted successfully',
             'bot': bot.to_dict()
         })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/api/bots/<bot_id>/knowledge/progress', methods=['GET'])
+@login_required
+def get_indexing_progress(bot_id):
+    """Stream indexing progress as server-sent events"""
+    try:
+        def generate():
+            # Initial response
+            if not hasattr(app, 'indexing_progress') or bot_id not in app.indexing_progress:
+                yield f"data: {json.dumps({'status': 'idle', 'percent': 0, 'current': 0, 'total': 0})}\n\n"
+                return
+                
+            # Send current progress immediately
+            yield f"data: {json.dumps(app.indexing_progress.get(bot_id, {'status': 'idle', 'percent': 0}))}\n\n"
+            
+            # Then keep checking for updates
+            last_progress = app.indexing_progress.get(bot_id, {}).get('current', 0)
+            check_count = 0
+            
+            while check_count < 60:  # Limit to 60 checks (30 seconds)
+                time.sleep(0.5)
+                check_count += 1
+                
+                # If progress exists and has changed
+                if hasattr(app, 'indexing_progress') and bot_id in app.indexing_progress:
+                    current_progress = app.indexing_progress[bot_id]
+                    
+                    # Only send if progress has changed
+                    if current_progress.get('current', 0) != last_progress:
+                        yield f"data: {json.dumps(current_progress)}\n\n"
+                        last_progress = current_progress.get('current', 0)
+                        
+                    # If processing is complete, send final update and exit
+                    if current_progress.get('status') == 'complete' or \
+                       (current_progress.get('current', 0) >= current_progress.get('total', 0) and \
+                        current_progress.get('total', 0) > 0):
+                        yield f"data: {json.dumps({'status': 'complete', 'percent': 100})}\n\n"
+                        break
+                else:
+                    # If progress tracking was removed, send idle status
+                    yield f"data: {json.dumps({'status': 'idle', 'percent': 0})}\n\n"
+                    break
+                    
+        return Response(stream_with_context(generate()), mimetype='text/event-stream')
     except Exception as e:
         return jsonify({
             'status': 'error',

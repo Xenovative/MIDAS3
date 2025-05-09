@@ -3803,6 +3803,42 @@ async function uploadKnowledgeFiles(botId, files) {
         progressContainer.querySelector('.progress-status').textContent = 'Uploading files...';
         progressContainer.querySelector('.file-progress-list').innerHTML = '';
     }
+    
+    // Start listening for progress updates via SSE
+    let eventSource;
+    try {
+        eventSource = new EventSource(`/api/bots/${botId}/knowledge/progress`);
+        
+        eventSource.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            if (progressContainer) {
+                // Update progress bar
+                progressContainer.querySelector('.progress-bar').style.width = `${data.percent || 0}%`;
+                
+                // Update status text
+                if (data.status === 'indexing') {
+                    progressContainer.querySelector('.progress-status').textContent = 
+                        `Processing ${data.file || 'documents'}: ${data.current || 0}/${data.total || 0} chunks (${data.percent || 0}%)`;
+                    
+                    // Update stats
+                    progressContainer.querySelector('.chunks-processed').textContent = data.current || 0;
+                } else if (data.status === 'complete') {
+                    progressContainer.querySelector('.progress-status').textContent = 'Processing complete!';
+                    
+                    // Close the event source on completion
+                    eventSource.close();
+                }
+            }
+        };
+        
+        eventSource.onerror = function() {
+            // Close the connection if there's an error
+            eventSource.close();
+        };
+    } catch (e) {
+        console.error('Error setting up SSE:', e);
+    }
 
     const formData = new FormData();
     
