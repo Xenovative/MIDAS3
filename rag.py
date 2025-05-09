@@ -5,6 +5,9 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from config import OLLAMA_HOST
 import json
+import logging
+
+app = logging.getLogger(__name__)
 
 # --- Configuration ---
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
@@ -175,43 +178,74 @@ def add_single_document_to_store(file_path, collection_name=DEFAULT_COLLECTION_N
         print(f"Error adding single document {file_path}: {e}")
         return False
 
-# --- RAG Query Function ---
-
-def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None):
-    """Checks if any documents exist in the vector store.
-    
-    Args:
-        collection_name: Name of the collection to check
-        conversation_id: If provided, will check a conversation-specific collection
-        
-    Returns:
-        bool: True if documents exist, False otherwise
-    """
+def process_uploaded_file(file_storage, bot_id, conversation_id=None):
+    """Process an uploaded file and add to vector store"""
     try:
-        # If conversation_id is provided, use a conversation-specific collection
-        if conversation_id:
-            collection_name = get_conversation_collection_name(conversation_id)
-            
-        # Check if the Chroma DB directory exists
-        if not os.path.exists(CHROMA_PERSIST_DIR):
-            print(f"Vector store directory does not exist: {CHROMA_PERSIST_DIR}")
+        app.logger.info(f"Starting processing for file: {file_storage.filename}")
+        
+        # Get appropriate processor based on file type
+        processor = get_processor(file_storage.filename)
+        if not processor:
+            app.logger.error(f"Unsupported file type: {file_storage.filename}")
             return False
             
-        # Load the persisted vector store
+        # Parse into documents
+        docs = processor.parse(file_storage)
+        app.logger.info(f"Parsed {len(docs)} documents from {file_storage.filename}")
+        
+        # Generate embeddings and store
+        collection_name = get_collection_name(bot_id, conversation_id)
         vectorstore = Chroma(
-            persist_directory=CHROMA_PERSIST_DIR, 
-            embedding_function=ollama_ef, 
+            persist_directory=CHROMA_PERSIST_DIR,
+            embedding_function=ollama_ef,
             collection_name=collection_name
         )
         
-        # Get the collection and check if it has any documents
-        collection = vectorstore._collection
-        count = collection.count()
+        # Add documents with progress logging
+        batch_size = 10
+        for i in range(0, len(docs), batch_size):
+            batch = docs[i:i + batch_size]
+            vectorstore.add_documents(batch)
+            app.logger.info(f"Processed batch {i//batch_size + 1}/{(len(docs)//batch_size)+1}")
+            
+        app.logger.info(f"Successfully stored {len(docs)} documents in collection {collection_name}")
+        return True
         
-        print(f"Vector store collection '{collection_name}' has {count} documents.")
-        return count > 0
     except Exception as e:
-        print(f"Error checking for documents in vector store: {e}")
+        app.logger.error(f"Failed to process {file_storage.filename}: {str(e)}", exc_info=True)
+        return False
+
+# --- RAG Query Function ---
+
+def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None):
+    """Checks if any documents exist in the vector store with detailed logging"""
+    try:
+        # If conversation_id is provided, use conversation-specific collection
+        if conversation_id:
+            collection_name = get_conversation_collection_name(conversation_id)
+            
+        app.logger.info(f"Checking for documents in collection: {collection_name}")
+        
+        # Check if Chroma DB directory exists
+        if not os.path.exists(CHROMA_PERSIST_DIR):
+            app.logger.error(f"Vector store directory does not exist: {CHROMA_PERSIST_DIR}")
+            return False
+            
+        # Load the vector store
+        vectorstore = Chroma(
+            persist_directory=CHROMA_PERSIST_DIR,
+            embedding_function=ollama_ef,
+            collection_name=collection_name
+        )
+        
+        # Get document count
+        count = vectorstore._collection.count()
+        app.logger.info(f"Found {count} documents in collection {collection_name}")
+        
+        return count > 0
+        
+    except Exception as e:
+        app.logger.error(f"Error checking documents: {str(e)}", exc_info=True)
         return False
 
 def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, k=3):
