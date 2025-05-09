@@ -1880,7 +1880,7 @@ def generate_image():
 
     # Wait at least 120 seconds before first check to give time for image generation
     print(f"Waiting 120 seconds for image generation to complete for prompt_id {result.get('prompt_id')}")
-    time.sleep(120)
+    time.sleep(270)
     
     # First check after initial wait
     print(f"Checking history for prompt_id {result.get('prompt_id')} (first check)")
