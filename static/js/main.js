@@ -3333,7 +3333,6 @@ function initializeBotManagement() {
     const cancelBotEditButton = document.getElementById('cancel-bot-edit');
     const uploadKnowledgeButton = document.getElementById('upload-knowledge-button');
     const knowledgeFileInput = document.getElementById('knowledge-file-input');
-    const reindexKnowledgeBtn = document.getElementById('reindexKnowledgeBtn');
     
     // Temperature and Top-P sliders
     const temperatureSlider = document.getElementById('bot-temperature');
@@ -3357,50 +3356,6 @@ function initializeBotManagement() {
         loadBots();
     });
     
-    // Re-index knowledge button
-    if (reindexKnowledgeBtn) {
-        reindexKnowledgeBtn.addEventListener('click', async function() {
-            const botId = document.getElementById('bot-id').value;
-            if (!botId) {
-                showNotification('No bot selected', 'error');
-                return;
-            }
-            
-            try {
-                // Change button state to show it's processing
-                const button = this;
-                const originalText = button.innerHTML;
-                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Re-indexing...';
-                button.disabled = true;
-                
-                // Call the re-index API
-                const response = await fetch(`/api/bots/${botId}/reindex`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showNotification('Re-indexing started. This may take a few minutes.', 'success');
-                } else {
-                    showNotification(data.message || 'Failed to start re-indexing', 'error');
-                }
-            } catch (error) {
-                console.error('Error re-indexing knowledge:', error);
-                showNotification('Failed to start re-indexing', 'error');
-            } finally {
-                // Restore button state after 3 seconds
-                setTimeout(() => {
-                    button.innerHTML = '<i class="fas fa-sync"></i> Re-index Knowledge Files';
-                    button.disabled = false;
-                }, 3000);
-            }
-        });
-    }
-    
     // Close bot management modal
     closeBotModalButton.addEventListener('click', function() {
         botManagementModal.style.display = 'none';
@@ -3413,87 +3368,16 @@ function initializeBotManagement() {
         }
     });
     
-    // Setup event listeners for the bot modal
-    function setupBotModalEvents() {
-        // Create new bot button
-        document.getElementById('create-new-bot-button').addEventListener('click', function() {
-            showBotEditor();
-            clearBotForm();
-        });
-        
-        // Re-index knowledge button
-        document.getElementById('reindexKnowledgeBtn').addEventListener('click', async function() {
-            const botId = document.getElementById('bot-id').value;
-            if (!botId) {
-                showNotification('error', 'No bot selected');
-                return;
-            }
-            
-            try {
-                // Change button state to show it's processing
-                const button = this;
-                const originalText = button.innerHTML;
-                button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Re-indexing...';
-                button.disabled = true;
-                
-                // Call the re-index API
-                const response = await fetch(`/api/bots/${botId}/reindex`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    }
-                });
-                
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showNotification('success', 'Re-indexing started. This may take a few minutes.');
-                } else {
-                    showNotification('error', data.message || 'Failed to start re-indexing');
-                }
-            } catch (error) {
-                console.error('Error re-indexing knowledge:', error);
-                showNotification('error', 'Failed to start re-indexing');
-            } finally {
-                // Restore button state after 3 seconds
-                setTimeout(() => {
-                    button.innerHTML = '<i class="fas fa-sync"></i> Re-index Knowledge Files';
-                    button.disabled = false;
-                }, 3000);
-            }
-        });
-        
-        // Go back to bot list
-        backToListButton.addEventListener('click', function() {
-            showBotList();
-        });
-        
-        // Cancel bot edit
-        cancelBotEditButton.addEventListener('click', function() {
-            showBotList();
-        });
-        
-        // Handle bot form submission
-        botForm.addEventListener('submit', function(event) {
-            event.preventDefault();
-            saveBot();
-        });
-        
-        // Handle knowledge file upload button
-        uploadKnowledgeButton.addEventListener('click', function() {
-            knowledgeFileInput.click();
-        });
-        
-        // Handle knowledge file selection
-        knowledgeFileInput.addEventListener('change', function() {
-            const botId = document.getElementById('bot-id').value;
-            if (botId && this.files.length > 0) {
-                uploadKnowledgeFiles(botId, this.files);
-            }
-        });
-    }
+    // Show bot editor for creating a new bot
+    createNewBotButton.addEventListener('click', function() {
+        showBotEditor();
+    });
     
-    setupBotModalEvents();
+    // Go back to bot list
+    backToListButton.addEventListener('click', function() {
+        showBotList();
+    });
+    
     // Cancel bot edit
     cancelBotEditButton.addEventListener('click', function() {
         showBotList();
@@ -3509,6 +3393,17 @@ function initializeBotManagement() {
     uploadKnowledgeButton.addEventListener('click', function() {
         knowledgeFileInput.click();
     });
+    
+    // Handle re-index knowledge button
+    const reindexKnowledgeButton = document.getElementById('reindex-knowledge-button');
+    if (reindexKnowledgeButton) {
+        reindexKnowledgeButton.addEventListener('click', function() {
+            const botId = document.getElementById('bot-id').value;
+            if (botId) {
+                reindexKnowledgeFiles(botId);
+            }
+        });
+    }
     
     // Handle knowledge file selection
     knowledgeFileInput.addEventListener('change', function() {
@@ -3906,86 +3801,145 @@ async function deleteBot(botId) {
 }
 
 // Upload knowledge files
-async function uploadKnowledgeFiles(botId, files) {
-    if (!botId || !files || files.length === 0) {
+async function reindexKnowledgeFiles(botId) {
+    if (!botId) {
+        showNotification('Error', 'Bot ID is required', 'error');
         return;
     }
 
-    // Show progress container
-    const progressContainer = document.getElementById('processing-progress');
-    if (progressContainer) {
-        progressContainer.classList.add('active');
-        progressContainer.querySelector('.progress-bar').style.width = '0%';
-        progressContainer.querySelector('.progress-status').textContent = 'Uploading files...';
-        progressContainer.querySelector('.file-progress-list').innerHTML = '';
-    }
+    // Show upload progress container
+    const progressContainer = document.getElementById('upload-progress-container');
+    const progressBar = document.getElementById('upload-progress-bar');
+    const progressText = document.getElementById('upload-progress-text');
+    const processingDetails = document.getElementById('processing-details');
     
-    // Start listening for progress updates via SSE
-    let eventSource;
+    if (progressContainer) {
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.textContent = 'Starting re-indexing...';
+        processingDetails.innerHTML = '<p>Re-indexing knowledge files. This may take some time for large files.</p>';
+    }
+
     try {
-        eventSource = new EventSource(`/api/bots/${botId}/knowledge/progress`);
+        // Start the re-indexing process
+        const response = await fetch(`/api/bots/${botId}/knowledge/reindex`, {
+            method: 'POST'
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to start re-indexing');
+        }
+
+        const responseData = await response.json();
+        
+        // After successful start, connect to SSE endpoint to get processing progress
+        const eventSource = new EventSource(`/api/bots/${botId}/knowledge/progress`);
         
         eventSource.onmessage = function(event) {
             const data = JSON.parse(event.data);
             
-            if (progressContainer) {
+            if (data.status === 'processing') {
                 // Update progress bar
-                progressContainer.querySelector('.progress-bar').style.width = `${data.percent || 0}%`;
+                const percent = data.progress * 100;
+                progressBar.style.width = `${percent}%`;
+                progressText.textContent = `Re-indexing: ${Math.round(percent)}%`;
                 
-                // Update status text
-                if (data.status === 'indexing') {
-                    progressContainer.querySelector('.progress-status').textContent = 
-                        `Processing ${data.file || 'documents'}: ${data.current || 0}/${data.total || 0} chunks (${data.percent || 0}%)`;
-                    
-                    // Update stats
-                    progressContainer.querySelector('.chunks-processed').textContent = data.current || 0;
-                } else if (data.status === 'complete') {
-                    progressContainer.querySelector('.progress-status').textContent = 'Processing complete!';
-                    
-                    // Close the event source on completion
-                    eventSource.close();
+                // Update processing details
+                if (data.current_file) {
+                    processingDetails.innerHTML = `
+                        <p><strong>Current file:</strong> ${data.current_file}</p>
+                        <p><strong>Chunks processed:</strong> ${data.chunks_processed}</p>
+                    `;
                 }
+            } else if (data.status === 'complete') {
+                // Processing complete
+                progressBar.style.width = '100%';
+                progressText.textContent = 'Re-indexing complete!';
+                processingDetails.innerHTML = `
+                    <p><strong>Files processed:</strong> ${data.files_processed}</p>
+                    <p><strong>Total chunks:</strong> ${data.total_chunks}</p>
+                `;
+                
+                // Close the event source
+                eventSource.close();
+                
+                // Show success notification
+                showNotification('Success', 'Knowledge base re-indexed successfully', 'success');
+                
+                // Hide progress after a delay
+                setTimeout(() => {
+                    progressContainer.style.display = 'none';
+                }, 3000);
+            } else if (data.status === 'error') {
+                // Error during processing
+                progressText.textContent = 'Error during re-indexing';
+                processingDetails.innerHTML = `<p class="error">${data.message}</p>`;
+                
+                // Close the event source
+                eventSource.close();
+                
+                // Show error notification
+                showNotification('Error', data.message, 'error');
             }
         };
         
         eventSource.onerror = function() {
-            // Close the connection if there's an error
             eventSource.close();
+            progressText.textContent = 'Lost connection to server';
+            showNotification('Warning', 'Lost connection to progress updates', 'warning');
         };
-    } catch (e) {
-        console.error('Error setting up SSE:', e);
+        
+        // Show initial success notification
+        showNotification('Info', responseData.message, 'info');
+        
+    } catch (error) {
+        console.error('Error starting re-indexing:', error);
+        showNotification('Error', error.message, 'error');
+        
+        if (progressContainer) {
+            progressText.textContent = 'Re-indexing failed';
+            processingDetails.innerHTML = `<p class="error">${error.message}</p>`;
+        }
+    }
+}
+
+// Upload knowledge files
+async function uploadKnowledgeFiles(botId, files) {
+    if (!botId || !files || files.length === 0) {
+        showNotification('Error', 'No files selected', 'error');
+        return;
     }
 
     const formData = new FormData();
-    
     for (let i = 0; i < files.length; i++) {
         formData.append('files', files[i]);
-        
-        // Add file to progress list
-        if (progressContainer) {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'file-progress-item';
-            fileItem.innerHTML = `
-                <div class="file-progress-name">${files[i].name}</div>
-                <div class="file-progress-details">
-                    <span>Size: ${(files[i].size / 1024).toFixed(1)} KB</span>
-                    <span>Status: Uploading</span>
-                </div>
-            `;
-            progressContainer.querySelector('.file-progress-list').appendChild(fileItem);
-        }
     }
+
+    // Show upload progress container
+    const progressContainer = document.getElementById('upload-progress-container');
+    const progressBar = document.getElementById('upload-progress-bar');
+    const progressText = document.getElementById('upload-progress-text');
+    const processingDetails = document.getElementById('processing-details');
     
+    if (progressContainer) {
+        progressContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressText.textContent = 'Starting upload...';
+        processingDetails.innerHTML = '';
+    }
+
     try {
-        // Update progress bar to 10% for upload start
-        if (progressContainer) {
-            progressContainer.querySelector('.progress-bar').style.width = '10%';
-        }
-        
+        // First, upload the files
         const response = await fetch(`/api/bots/${botId}/knowledge`, {
             method: 'POST',
             body: formData
         });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to upload files');
+        }
         
         // Update progress bar to 50% for upload complete
         if (progressContainer) {

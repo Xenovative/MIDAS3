@@ -4095,22 +4095,15 @@
                             <div class="bot-form-container">
                                 <div class="bot-form-column">
                                     <div class="form-group">
-                                        <label for="botKnowledgeFiles">Knowledge Files</label>
-                                        <input type="file" class="form-control-file" id="botKnowledgeFiles" multiple>
-                                        <small class="form-text text-muted">Upload PDF, TXT, MD, or XML files for the bot's knowledge base</small>
+                                        <label for="bot-name">Bot Name</label>
+                                        <input type="text" id="bot-name" placeholder="Enter a name for your bot" required>
                                     </div>
-                                    <div id="uploadProgress" class="d-none">
-                                        <div class="progress-status mb-2"></div>
-                                        <div class="progress mb-3">
-                                            <div class="progress-bar" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
-                                        </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="bot-description">Description</label>
+                                        <textarea id="bot-description" placeholder="Describe what this bot does" rows="2"></textarea>
                                     </div>
-                                    <div class="form-group mt-3">
-                                        <button type="button" id="reindexKnowledgeBtn" class="secondary-button">
-                                            <i class="fas fa-sync"></i> Re-index Knowledge Files
-                                        </button>
-                                        <small class="form-text text-muted">Use this if the bot isn't finding information from uploaded files</small>
-                                    </div>
+                                    
                                     <div class="form-group">
                                         <label for="bot-greeting">Greeting Message</label>
                                         <textarea id="bot-greeting" placeholder="Message to display when a user starts a chat with this bot" rows="2"></textarea>
@@ -4141,14 +4134,18 @@
                                         <label for="bot-system-prompt">System Prompt</label>
                                         <textarea id="bot-system-prompt" placeholder="Instructions for the bot's behavior" rows="5"></textarea>
                                     </div>
-                                    
-                                    <div class="form-group">
-                                        <label>Knowledge Base</label>
+                                    <div class="knowledge-files-section">
+                                        <h4>Knowledge Files</h4>
+                                        <div class="knowledge-files-controls">
+                                            <button type="button" id="upload-knowledge-button" class="btn btn-primary btn-sm">
+                                                <i class="fas fa-upload"></i> Upload Files
+                                            </button>
+                                            <button type="button" id="reindex-knowledge-button" class="btn btn-secondary btn-sm">
+                                                <i class="fas fa-sync"></i> Re-index Files
+                                            </button>
+                                            <input type="file" id="knowledge-file-input" multiple style="display: none;">
+                                        </div>
                                         <div class="knowledge-base-selector">
-                                            <div class="file-upload-container">
-                                                <input type="file" id="knowledge-file-input" multiple accept=".txt,.pdf,.md,.xml">
-                                                <button type="button" id="upload-knowledge-button" class="secondary-button">Upload Files</button>
-                                            </div>
                                             
                                             <!-- Document Processing Progress Indicator -->
                                             <div id="processing-progress" class="processing-progress">

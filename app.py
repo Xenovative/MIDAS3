@@ -846,13 +846,9 @@ def generate():
                             else:
                                 app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but no indexed documents in collection {bot_collection}")
                                 
-                                # Skip re-indexing during chat to avoid timeouts
-                                app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but collection '{bot_collection}' has no documents")
-                                app.logger.info(f"[RAG] Skipping re-indexing during chat to avoid timeouts")
-                                
-                                # Log recommendation for admin
-                                app.logger.warning(f"[RAG] ADMIN ACTION NEEDED: Bot {bot_id} needs re-indexing of knowledge files")
-                                app.logger.warning(f"[RAG] Run the following API call to re-index: POST /api/bots/{bot_id}/reindex")
+                                # Log suggestion to use re-index endpoint instead of doing it during chat
+                                app.logger.info(f"[RAG] Bot {bot_id} has knowledge files but no indexed documents.")
+                                app.logger.info(f"[RAG] Recommend using /api/bots/{bot_id}/knowledge/reindex endpoint to index files")
                         except Exception as e:
                             app.logger.error(f"[RAG] Error checking bot collection: {str(e)}")
                             app.logger.info(f"[RAG] Falling back to has_documents check")
@@ -2775,13 +2771,14 @@ def delete_knowledge_file(bot_id, filename):
             'status': 'error',
             'message': str(e)
         }), 500
-
-@app.route('/api/bots/<bot_id>/reindex', methods=['POST'])
+        
+@app.route('/api/bots/<bot_id>/knowledge/reindex', methods=['POST'])
 @login_required
 @admin_required
 def reindex_bot_knowledge_files(bot_id):
     """Re-index all knowledge files for a bot"""
     try:
+        # Get the bot
         bot = Bot.get(bot_id)
         if not bot:
             return jsonify({
@@ -2789,120 +2786,36 @@ def reindex_bot_knowledge_files(bot_id):
                 'message': 'Bot not found'
             }), 404
             
+        # Check if bot has knowledge files
         if not bot.knowledge_files:
             return jsonify({
                 'status': 'error',
                 'message': 'Bot has no knowledge files to index'
             }), 400
             
-        # Function to re-index knowledge files
-        def do_reindex():
+        # Start background task for indexing
+        # This prevents timeouts during indexing of large files
+        def background_indexing():
             try:
-                app.logger.info(f"Re-indexing knowledge files for bot {bot.id}")
-                kb_dir = bot.get_knowledge_base_path()
-                collection_name = f"bot_{bot.id}"
-                
-                # Clear existing collection if it exists
-                try:
-                    from chromadb.config import Settings
-                    import chromadb
-                    client = chromadb.PersistentClient(path=rag.CHROMA_PERSIST_DIR)
-                    
-                    # Delete collection if it exists
-                    try:
-                        client.delete_collection(name=collection_name)
-                        app.logger.info(f"Deleted existing collection '{collection_name}'")
-                    except Exception as e:
-                        app.logger.info(f"Collection '{collection_name}' doesn't exist or couldn't be deleted: {e}")
-                except Exception as e:
-                    app.logger.error(f"Error accessing Chroma client: {e}")
-                
-                # Process each file
-                indexed_files = []
-                total_chunks = 0
-                
-                for filename in bot.knowledge_files:
-                    try:
-                        file_path = os.path.join(kb_dir, secure_filename(filename))
-                        if not os.path.exists(file_path):
-                            app.logger.warning(f"File {filename} not found at {file_path}")
-                            continue
-                            
-                        # Select appropriate loader
-                        if filename.endswith('.pdf'):
-                            loader = PyPDFLoader(file_path)
-                        elif filename.endswith('.xml'):
-                            loader = UnstructuredXMLLoader(file_path)
-                        elif filename.endswith('.md'):
-                            loader = UnstructuredMarkdownLoader(file_path)
-                        else:  # .txt
-                            loader = TextLoader(file_path)
-                        
-                        # Load and process documents
-                        app.logger.info(f"Loading {filename} for indexing")
-                        documents = loader.load()
-                        
-                        # Add metadata
-                        for doc in documents:
-                            if not hasattr(doc, 'metadata') or not doc.metadata:
-                                doc.metadata = {}
-                            doc.metadata['source'] = file_path
-                            doc.metadata['filename'] = filename
-                            doc.metadata['bot_id'] = bot.id
-                        
-                        # Split documents
-                        text_splitter = rag.RecursiveCharacterTextSplitter(
-                            chunk_size=rag.CHUNK_SIZE, 
-                            chunk_overlap=rag.CHUNK_OVERLAP
-                        )
-                        split_docs = text_splitter.split_documents(documents)
-                        app.logger.info(f"Split {filename} into {len(split_docs)} chunks")
-                        
-                        # Process in batches to avoid memory issues
-                        batch_size = 500
-                        for i in range(0, len(split_docs), batch_size):
-                            batch_end = min(i + batch_size, len(split_docs))
-                            current_batch = split_docs[i:batch_end]
-                            
-                            # Add to vector store
-                            vectorstore = rag.Chroma(
-                                persist_directory=rag.CHROMA_PERSIST_DIR, 
-                                embedding_function=rag.ollama_ef, 
-                                collection_name=collection_name
-                            )
-                            vectorstore.add_documents(current_batch)
-                            vectorstore.persist()
-                            
-                            app.logger.info(f"Indexed batch {i//batch_size + 1}/{(len(split_docs) + batch_size - 1)//batch_size} for {filename}")
-                        
-                        total_chunks += len(split_docs)
-                        indexed_files.append(filename)
-                        app.logger.info(f"Successfully indexed {filename}")
-                    except Exception as e:
-                        app.logger.error(f"Error indexing {filename}: {str(e)}")
-                
-                return {
-                    'indexed_files': indexed_files,
-                    'total_chunks': total_chunks
-                }
+                app.logger.info(f"Starting background re-indexing for bot {bot_id}")
+                indexed_files = reindex_bot_knowledge(bot)
+                app.logger.info(f"Background re-indexing complete for bot {bot_id}: {indexed_files}")
             except Exception as e:
-                app.logger.error(f"Error in re-indexing: {str(e)}")
-                return {
-                    'error': str(e)
-                }
-        
-        # Start re-indexing in a background thread to avoid blocking the response
+                app.logger.error(f"Error in background re-indexing for bot {bot_id}: {e}")
+                
+        # Start the background thread
         import threading
-        thread = threading.Thread(target=do_reindex)
-        thread.daemon = True
-        thread.start()
+        indexing_thread = threading.Thread(target=background_indexing)
+        indexing_thread.daemon = True
+        indexing_thread.start()
         
         return jsonify({
             'status': 'success',
             'message': f'Re-indexing started for {len(bot.knowledge_files)} files',
-            'bot': bot.to_dict()
+            'files': bot.knowledge_files
         })
     except Exception as e:
+        app.logger.error(f"Error starting re-indexing: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
