@@ -686,34 +686,55 @@ def generate():
                 app.logger.info(f"[RAG] No relevant context found in conversation documents")
         
         # If no conversation documents or no results, check bot's knowledge base
-        if not secret and not retrieved_context and bot_id:
-            try:
-                # Get the bot
-                bot = Bot.get(bot_id)
-                if bot and bot.knowledge_files:
-                    app.logger.info(f"[RAG] Checking bot {bot_id} knowledge base with {len(bot.knowledge_files)} files")
-                    
-                    # Check if bot has knowledge base documents
-                    if rag.has_documents(collection_name=f"bot_{bot_id}"):
-                        app.logger.info(f"[RAG] Documents found for bot {bot_id}, using bot RAG")
-                        use_rag = True
+        if not secret and not retrieved_context:
+            # First check if bot_id is provided in the request
+            if bot_id:
+                bot_collection = f"bot_{bot_id}"
+            else:
+                # If no bot_id in request, try to get the bot associated with this conversation
+                try:
+                    conversation = db.get_conversation(conversation_id)
+                    if conversation and 'bot_id' in conversation:
+                        bot_id = conversation['bot_id']
+                        bot_collection = f"bot_{bot_id}"
+                        app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id}")
+                    else:
+                        bot_collection = None
+                except Exception as e:
+                    app.logger.error(f"[RAG] Error getting conversation bot: {str(e)}")
+                    bot_collection = None
+            
+            # Check bot's knowledge base if we have a bot_id
+            if bot_id and bot_collection:
+                try:
+                    # Get the bot
+                    bot = Bot.get(bot_id)
+                    if bot and bot.knowledge_files:
+                        app.logger.info(f"[RAG] Checking bot {bot_id} knowledge base with {len(bot.knowledge_files)} files")
                         
-                        # Log RAG query details
-                        app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
-                        
-                        # Retrieve context from bot's knowledge base
-                        retrieval_start = time.time()
-                        bot_context = rag.retrieve_context(user_message, collection_name=f"bot_{bot_id}")
-                        retrieval_time = time.time() - retrieval_start
-                        
-                        if bot_context:
-                            retrieved_context = bot_context
-                            app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
-                            app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
+                        # Check if bot has knowledge base documents
+                        if rag.has_documents(collection_name=bot_collection):
+                            app.logger.info(f"[RAG] Documents found for bot {bot_id}, using bot RAG")
+                            use_rag = True
+                            
+                            # Log RAG query details
+                            app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
+                            
+                            # Retrieve context from bot's knowledge base
+                            retrieval_start = time.time()
+                            bot_context = rag.retrieve_context(user_message, collection_name=bot_collection)
+                            retrieval_time = time.time() - retrieval_start
+                            
+                            if bot_context:
+                                retrieved_context = bot_context
+                                app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
+                                app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
+                            else:
+                                app.logger.info(f"[RAG] No relevant context found in bot's knowledge base")
                         else:
-                            app.logger.info(f"[RAG] No relevant context found in bot's knowledge base")
-            except Exception as e:
-                app.logger.error(f"[RAG] Error checking bot knowledge: {str(e)}")
+                            app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but no indexed documents in collection {bot_collection}")
+                except Exception as e:
+                    app.logger.error(f"[RAG] Error checking bot knowledge: {str(e)}")
         
         if not use_rag:
             app.logger.info(f"[RAG] No documents found in conversation or bot knowledge, skipping RAG")
@@ -2240,12 +2261,41 @@ def upload_knowledge_files(bot_id):
                         loader = TextLoader(file_path)
                         
                     documents = loader.load()
-                    # Add your indexing logic here
+                    
+                    # Index documents in bot's knowledge base collection
+                    collection_name = f"bot_{bot_id}"
+                    app.logger.info(f'Indexing {len(documents)} documents from {filename} in collection {collection_name}')
+                    
+                    # Split documents into chunks
+                    text_splitter = rag.RecursiveCharacterTextSplitter(
+                        chunk_size=rag.CHUNK_SIZE, 
+                        chunk_overlap=rag.CHUNK_OVERLAP
+                    )
+                    split_docs = text_splitter.split_documents(documents)
+                    app.logger.info(f'Split into {len(split_docs)} chunks for indexing')
+                    
+                    # Add to vector store
+                    try:
+                        # Load existing or create new vector store
+                        vectorstore = rag.Chroma(
+                            persist_directory=rag.CHROMA_PERSIST_DIR, 
+                            embedding_function=rag.ollama_ef, 
+                            collection_name=collection_name
+                        )
+                        vectorstore.add_documents(split_docs)
+                        vectorstore.persist()
+                        app.logger.info(f'Successfully indexed {len(split_docs)} chunks in bot knowledge base')
+                    except Exception as ve:
+                        app.logger.error(f'Error indexing in vector store: {str(ve)}')
+                        raise
+                        
                     app.logger.info(f'Processed {len(documents)} documents from {filename}')
                 except Exception as e:
                     app.logger.error(f'Error processing file {filename}: {str(e)}')
-                    continue
-            
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                    saved_files.remove(filename)
+                    
         if not saved_files:
             return jsonify({
                 'status': 'error', 
