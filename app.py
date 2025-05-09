@@ -1880,14 +1880,20 @@ def generate_image():
     
     # Verify ComfyUI is actually processing the prompt
     print(f"Verifying ComfyUI is processing prompt {result.get('prompt_id')}")
-    status_resp = requests.get(f'http://localhost:8188/queue', timeout=10)
+    status_resp = requests.get('http://localhost:8188/queue', timeout=30)
     queue_data = status_resp.json()
-    if not any(str(result.get('prompt_id')) in item for item in queue_data.get('queue_running', [])):
+    prompt_id_str = str(result.get('prompt_id'))
+
+    if (not any(prompt_id_str in str(item[1]) for item in queue_data.get('queue_running', [])) and
+        not any(prompt_id_str in str(item[1]) for item in queue_data.get('queue_pending', []))):
         return jsonify({
-            'status': 'error', 
+            'status': 'error',
             'message': 'Prompt not found in ComfyUI queue',
             'queue_status': queue_data
         }), 500
+
+    # Add progress tracking
+    print(f"Prompt is in queue - Running: {queue_data['queue_running']}, Pending: {queue_data['queue_pending']}")
 
     # Wait for the generation to complete
     max_attempts = 180  # 30 minutes total (180 * 10-60 seconds)
