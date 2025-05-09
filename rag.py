@@ -178,75 +178,61 @@ def add_single_document_to_store(file_path, collection_name=DEFAULT_COLLECTION_N
         return False
 
 def process_uploaded_file(file_storage, bot_id, conversation_id=None):
-    """Process an uploaded file and add to vector store"""
+    """Process upload and store in bot's collection"""
     try:
-        app.logger.info(f"Starting processing for file: {file_storage.filename}")
+        # Always use bot's collection as primary
+        collection_name = f"bot_{bot_id}"
         
-        # Get appropriate processor based on file type
+        # Process and store documents
         processor = get_processor(file_storage.filename)
-        if not processor:
-            app.logger.error(f"Unsupported file type: {file_storage.filename}")
-            return False
-            
-        # Parse into documents
         docs = processor.parse(file_storage)
-        app.logger.info(f"Parsed {len(docs)} documents from {file_storage.filename}")
         
-        # Generate embeddings and store
-        collection_name = get_collection_name(bot_id, conversation_id)
         vectorstore = Chroma(
             persist_directory=CHROMA_PERSIST_DIR,
             embedding_function=ollama_ef,
             collection_name=collection_name
         )
         
-        # Add documents with progress logging
-        batch_size = 10
-        for i in range(0, len(docs), batch_size):
-            batch = docs[i:i + batch_size]
-            vectorstore.add_documents(batch)
-            app.logger.info(f"Processed batch {i//batch_size + 1}/{(len(docs)//batch_size)+1}")
-            
-        app.logger.info(f"Successfully stored {len(docs)} documents in collection {collection_name}")
-        return True
+        vectorstore.add_documents(docs)
+        app.logger.info(f"Stored {len(docs)} docs in bot collection {collection_name}")
         
+        return True
     except Exception as e:
-        app.logger.error(f"Failed to process {file_storage.filename}: {str(e)}", exc_info=True)
+        app.logger.error(f"Upload processing failed: {str(e)}", exc_info=True)
         return False
 
 # --- RAG Query Function ---
 
+def _collection_has_docs(collection_name):
+    """Helper to check if a collection has documents"""
+    if not os.path.exists(CHROMA_PERSIST_DIR):
+        return False
+        
+    vectorstore = Chroma(
+        persist_directory=CHROMA_PERSIST_DIR,
+        embedding_function=ollama_ef,
+        collection_name=collection_name
+    )
+    return vectorstore._collection.count() > 0
+
 def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
-    """Checks documents in both conversation and bot collections"""
+    """Returns True if EITHER collection has documents"""
     try:
-        # Check conversation collection first (if specified)
+        # Check conversation collection
         if conversation_id:
             conv_collection = get_conversation_collection_name(conversation_id)
             app.logger.info(f"Checking conversation collection: {conv_collection}")
-            
-            vectorstore = Chroma(
-                persist_directory=CHROMA_PERSIST_DIR,
-                embedding_function=ollama_ef,
-                collection_name=conv_collection
-            )
-            if vectorstore._collection.count() > 0:
+            if _collection_has_docs(conv_collection):
                 return True
         
-        # Check bot's main knowledge base (if specified)
+        # Check bot collection
         if bot_id:
             bot_collection = f"bot_{bot_id}"
             app.logger.info(f"Checking bot collection: {bot_collection}")
-            
-            vectorstore = Chroma(
-                persist_directory=CHROMA_PERSIST_DIR,
-                embedding_function=ollama_ef,
-                collection_name=bot_collection
-            )
-            if vectorstore._collection.count() > 0:
+            if _collection_has_docs(bot_collection):
                 return True
                 
         return False
-        
     except Exception as e:
         app.logger.error(f"Document check failed: {str(e)}", exc_info=True)
         return False
