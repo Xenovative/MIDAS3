@@ -216,35 +216,39 @@ def process_uploaded_file(file_storage, bot_id, conversation_id=None):
 
 # --- RAG Query Function ---
 
-def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None):
-    """Checks if any documents exist in the vector store with detailed logging"""
+def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
+    """Checks documents in both conversation and bot collections"""
     try:
-        # If conversation_id is provided, use conversation-specific collection
+        # Check conversation collection first (if specified)
         if conversation_id:
-            collection_name = get_conversation_collection_name(conversation_id)
+            conv_collection = get_conversation_collection_name(conversation_id)
+            app.logger.info(f"Checking conversation collection: {conv_collection}")
             
-        app.logger.info(f"Checking for documents in collection: {collection_name}")
+            vectorstore = Chroma(
+                persist_directory=CHROMA_PERSIST_DIR,
+                embedding_function=ollama_ef,
+                collection_name=conv_collection
+            )
+            if vectorstore._collection.count() > 0:
+                return True
         
-        # Check if Chroma DB directory exists
-        if not os.path.exists(CHROMA_PERSIST_DIR):
-            app.logger.error(f"Vector store directory does not exist: {CHROMA_PERSIST_DIR}")
-            return False
+        # Check bot's main knowledge base (if specified)
+        if bot_id:
+            bot_collection = f"bot_{bot_id}"
+            app.logger.info(f"Checking bot collection: {bot_collection}")
             
-        # Load the vector store
-        vectorstore = Chroma(
-            persist_directory=CHROMA_PERSIST_DIR,
-            embedding_function=ollama_ef,
-            collection_name=collection_name
-        )
-        
-        # Get document count
-        count = vectorstore._collection.count()
-        app.logger.info(f"Found {count} documents in collection {collection_name}")
-        
-        return count > 0
+            vectorstore = Chroma(
+                persist_directory=CHROMA_PERSIST_DIR,
+                embedding_function=ollama_ef,
+                collection_name=bot_collection
+            )
+            if vectorstore._collection.count() > 0:
+                return True
+                
+        return False
         
     except Exception as e:
-        app.logger.error(f"Error checking documents: {str(e)}", exc_info=True)
+        app.logger.error(f"Document check failed: {str(e)}", exc_info=True)
         return False
 
 def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, k=3):
