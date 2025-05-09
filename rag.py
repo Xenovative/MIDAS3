@@ -4,9 +4,6 @@ from langchain_community.document_loaders import DirectoryLoader, TextLoader, Py
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from config import OLLAMA_HOST
-import json
-import logging
-from flask import current_app as app
 
 # --- Configuration ---
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
@@ -155,130 +152,65 @@ def add_single_document_to_store(file_path, collection_name=DEFAULT_COLLECTION_N
             vectorstore.persist()
             return True
 
-        print(f"Adding {len(split_docs)} document chunks to vector store")
-        print(f"Sample chunk metadata: {split_docs[0].metadata}" if split_docs else "No documents to add")
-        
+        print(f"Adding {len(split_docs)} chunks from '{filename}' to the vector store.")
+        # Add the new document chunks to the existing store
         vectorstore.add_documents(split_docs)
-        print(f"Successfully added documents to collection: {collection_name}")
         
-        # Log document statistics
-        doc_stats = {
-            'collection': collection_name,
-            'documents_added': len(split_docs),
-            'source_file': filename,
-            'file_type': file_extension,
-            'avg_chunk_length': sum(len(d.page_content) for d in split_docs)/len(split_docs) if split_docs else 0
-        }
-        print("Document processing stats:", json.dumps(doc_stats, indent=2))
-        
+        print(f"Persisting updated vector store to: {CHROMA_PERSIST_DIR}")
+        vectorstore.persist()
+        print(f"--- Single document '{filename}' added successfully ---")
         return True
 
     except Exception as e:
         print(f"Error adding single document {file_path}: {e}")
         return False
 
-def process_uploaded_file(file_storage, bot_id, conversation_id=None):
-    """Process upload and store in bot's collection"""
-    try:
-        # Always use bot's collection as primary
-        collection_name = f"bot_{bot_id}"
-        
-        # Process and store documents
-        processor = get_processor(file_storage.filename)
-        docs = processor.parse(file_storage)
-        
-        vectorstore = Chroma(
-            persist_directory=CHROMA_PERSIST_DIR,
-            embedding_function=ollama_ef,
-            collection_name=collection_name
-        )
-        
-        vectorstore.add_documents(docs)
-        app.logger.info(f"Stored {len(docs)} docs in bot collection {collection_name}")
-        
-        return True
-    except Exception as e:
-        app.logger.error(f"Upload processing failed: {str(e)}", exc_info=True)
-        return False
-
 # --- RAG Query Function ---
 
-def _collection_has_docs(collection_name):
-    """Helper to check if a collection has documents"""
-    if not os.path.exists(CHROMA_PERSIST_DIR):
-        return False
+def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None):
+    """Checks if any documents exist in the vector store.
+    
+    Args:
+        collection_name: Name of the collection to check
+        conversation_id: If provided, will check a conversation-specific collection
         
-    vectorstore = Chroma(
-        persist_directory=CHROMA_PERSIST_DIR,
-        embedding_function=ollama_ef,
-        collection_name=collection_name
-    )
-    return vectorstore._collection.count() > 0
-
-def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
-    """Returns True if bot collection has documents (when bot_id exists)"""
+    Returns:
+        bool: True if documents exist, False otherwise
+    """
     try:
-        # FIRST and PRIMARY check - bot collection (if ID exists)
-        if bot_id:
-            bot_collection = f"bot_{bot_id}"
-            app.logger.info(f"PRIMARY CHECK - Bot collection: {bot_collection}")
-            if _collection_has_docs(bot_collection):
-                return True
-            
-        # SECONDARY check - conversation collection (only if no bot_id or bot collection empty)
+        # If conversation_id is provided, use a conversation-specific collection
         if conversation_id:
-            conv_collection = get_conversation_collection_name(conversation_id)
-            app.logger.info(f"SECONDARY CHECK - Conversation collection: {conv_collection}")
-            if _collection_has_docs(conv_collection):
-                return True
-                
-        return False
-    except Exception as e:
-        app.logger.error(f"CRITICAL ERROR in document check: {str(e)}", exc_info=True)
-        return False
-
-def _get_docs_from_collection(query, collection_name, k):
-    """Helper to get docs from a single collection"""
-    try:
+            collection_name = get_conversation_collection_name(conversation_id)
+            
+        # Check if the Chroma DB directory exists
+        if not os.path.exists(CHROMA_PERSIST_DIR):
+            print(f"Vector store directory does not exist: {CHROMA_PERSIST_DIR}")
+            return False
+            
+        # Load the persisted vector store
         vectorstore = Chroma(
-            persist_directory=CHROMA_PERSIST_DIR,
-            embedding_function=ollama_ef,
+            persist_directory=CHROMA_PERSIST_DIR, 
+            embedding_function=ollama_ef, 
             collection_name=collection_name
         )
-        docs = vectorstore.similarity_search(query, k=k)
-        return "\n\n".join([doc.page_content for doc in docs])
-    except Exception as e:
-        app.logger.error(f"Failed to get docs from {collection_name}: {str(e)}")
-        return ""
-
-def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None, k=3):
-    """Retrieve docs from both conversation and bot collections"""
-    try:
-        contexts = []
         
-        # Check conversation collection first
-        if conversation_id:
-            conv_collection = get_conversation_collection_name(conversation_id)
-            contexts.append(_get_docs_from_collection(query, conv_collection, k))
-            
-        # Check bot collection
-        if bot_id:
-            bot_collection = f"bot_{bot_id}"
-            contexts.append(_get_docs_from_collection(query, bot_collection, k))
-            
-        return "\n\n".join(filter(None, contexts))
+        # Get the collection and check if it has any documents
+        collection = vectorstore._collection
+        count = collection.count()
+        
+        print(f"Vector store collection '{collection_name}' has {count} documents.")
+        return count > 0
     except Exception as e:
-        app.logger.error(f"Document retrieval failed: {str(e)}", exc_info=True)
-        return ""
+        print(f"Error checking for documents in vector store: {e}")
+        return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None, n_results=3):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=3):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
         query: The query to search for
         collection_name: Name of the collection to search in
         conversation_id: If provided, will search in a conversation-specific collection
-        bot_id: If provided, will search in a bot-specific collection
         n_results: Number of results to return
         
     Returns:
@@ -303,66 +235,31 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # Use the retriever to get relevant documents
         results = retriever.get_relevant_documents(query)
         
+        print(f"Retrieved {len(results)} context chunks from knowledge base")
+        
+        # Detailed logging of each retrieved chunk
+        for i, doc in enumerate(results):
+            source = doc.metadata.get('source', 'unknown source')
+            page = doc.metadata.get('page', 'unknown page')
+            print(f"\nContext chunk #{i+1}:")
+            print(f"  Source: {source}")
+            print(f"  Page/Section: {page}")
+            print(f"  Similarity score: {doc.metadata.get('score', 'N/A')}")
+            print(f"  Content snippet: {doc.page_content[:100]}...")
+        
         context_list = [doc.page_content for doc in results]
         context = "\n\n".join(context_list)
         
-        print(f"Retrieved {len(context_list)} context chunks.")
+        if context:
+            print(f"Total context length: {len(context)} characters")
+        else:
+            print("No relevant context found in knowledge base")
+            
         return context
     except Exception as e:
         print(f"Error retrieving context from Chroma vector store: {e}")
         print("Please ensure the vector store has been set up correctly.")
         return ""
-
-def generate_response(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
-    """Returns dict with 'response' and 'context_docs'"""
-    try:
-        context_docs = []
-        
-        # Get docs from both collections
-        if conversation_id:
-            conv_collection = get_conversation_collection_name(conversation_id)
-            docs = _get_docs_from_collection(query, conv_collection, 3)
-            if docs:
-                context_docs.extend(docs.split('\n\n'))
-                
-        if bot_id:
-            bot_collection = f"bot_{bot_id}"
-            docs = _get_docs_from_collection(query, bot_collection, 3)
-            if docs:
-                context_docs.extend(docs.split('\n\n'))
-        
-        # Generate response
-        context = '\n\n'.join(context_docs)
-        response = ollama.generate(
-            model='llama2',
-            prompt=f"Context:\n{context}\n\nQuestion: {query}\nAnswer:"
-        )
-        
-        return {
-            'response': response['response'],
-            'context_docs': context_docs
-        }
-    except Exception as e:
-        app.logger.error(f"RAG generation failed: {str(e)}", exc_info=True)
-        raise
-
-def get_debug_info(collection_name):
-    """Return debug information about the RAG state"""
-    try:
-        vectorstore = Chroma(
-            persist_directory=CHROMA_PERSIST_DIR,
-            embedding_function=ollama_ef,
-            collection_name=collection_name
-        )
-        
-        return {
-            'collection': collection_name,
-            'document_count': vectorstore._collection.count() if hasattr(vectorstore, '_collection') else 0,
-            'embedding_model': str(ollama_ef),
-            'persist_dir': CHROMA_PERSIST_DIR
-        }
-    except Exception as e:
-        return {'error': str(e)}
 
 # --- Example Usage (Optional) ---
 if __name__ == "__main__":

@@ -46,22 +46,10 @@ app.config['REQUEST_BUFFER_SIZE'] = 100 * 1024 * 1024  # 100MB
 if not os.path.exists('logs'):
     os.makedirs('logs')
 
-# Set up file logging
-file_handler = RotatingFileHandler('logs/app.log', maxBytes=1024*1024, backupCount=10)
-file_handler.setFormatter(logging.Formatter(
-    '%(asctime)s %(levelname)s: %(message)s [in %(pathname)s:%(lineno)d]'
-))
-file_handler.setLevel(logging.INFO)
-app.logger.addHandler(file_handler)
-
-# Ensure gunicorn logs are captured when running under gunicorn
-if 'gunicorn' in os.environ.get('SERVER_SOFTWARE', ''):
-    gunicorn_logger = logging.getLogger('gunicorn.error')
-    app.logger.handlers = gunicorn_logger.handlers
-    app.logger.setLevel(gunicorn_logger.level)
-
+log_handler = RotatingFileHandler('app.log', maxBytes=10000, backupCount=1)
+log_handler.setLevel(logging.INFO)
+app.logger.addHandler(log_handler)
 app.logger.setLevel(logging.INFO)
-app.logger.info('Application logging initialized')
 
 # --- Flask-Login Setup ---
 login_manager = LoginManager()
@@ -672,18 +660,63 @@ def generate():
             # Continue processing, but log the error
 
         # --- RAG Integration ---
-        # Only use RAG if documents have been uploaded for this conversation (skip for secret)
+        # Check for documents in conversation or bot's knowledge base (skip for secret)
         use_rag = False
         retrieved_context = ""
+        bot_id = data.get('bot_id')
         
-        # Check if any documents exist in the vector store for this conversation (skip for secret)
+        # First check conversation-specific documents
         if not secret and rag.has_documents(conversation_id=conversation_id):
-            app.logger.info(f"Documents found for conversation {conversation_id}, using RAG")
+            app.logger.info(f"[RAG] Documents found for conversation {conversation_id}, using conversation RAG")
             use_rag = True
+            
+            # Log RAG query details before retrieval
+            app.logger.info(f"[RAG] Querying conversation knowledge with: '{user_message[:100]}...'")
+            
             # Retrieve context based on the user message from this conversation's collection
+            retrieval_start = time.time()
             retrieved_context = rag.retrieve_context(user_message, conversation_id=conversation_id)
-        else:
-            app.logger.info(f"No documents found for conversation {conversation_id}, skipping RAG")
+            retrieval_time = time.time() - retrieval_start
+            
+            # Log RAG results
+            if retrieved_context:
+                app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from conversation knowledge in {retrieval_time:.2f}s")
+                app.logger.info(f"[RAG] Conversation knowledge sample: '{retrieved_context[:200]}...'")
+            else:
+                app.logger.info(f"[RAG] No relevant context found in conversation documents")
+        
+        # If no conversation documents or no results, check bot's knowledge base
+        if not secret and not retrieved_context and bot_id:
+            try:
+                # Get the bot
+                bot = Bot.get(bot_id)
+                if bot and bot.knowledge_files:
+                    app.logger.info(f"[RAG] Checking bot {bot_id} knowledge base with {len(bot.knowledge_files)} files")
+                    
+                    # Check if bot has knowledge base documents
+                    if rag.has_documents(collection_name=f"bot_{bot_id}"):
+                        app.logger.info(f"[RAG] Documents found for bot {bot_id}, using bot RAG")
+                        use_rag = True
+                        
+                        # Log RAG query details
+                        app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
+                        
+                        # Retrieve context from bot's knowledge base
+                        retrieval_start = time.time()
+                        bot_context = rag.retrieve_context(user_message, collection_name=f"bot_{bot_id}")
+                        retrieval_time = time.time() - retrieval_start
+                        
+                        if bot_context:
+                            retrieved_context = bot_context
+                            app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
+                            app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
+                        else:
+                            app.logger.info(f"[RAG] No relevant context found in bot's knowledge base")
+            except Exception as e:
+                app.logger.error(f"[RAG] Error checking bot knowledge: {str(e)}")
+        
+        if not use_rag:
+            app.logger.info(f"[RAG] No documents found in conversation or bot knowledge, skipping RAG")
         # --- End RAG Integration ---
         
         # --- Chat History Integration ---
@@ -908,33 +941,168 @@ Answer:"""
 @app.route('/api/conversations/<id>/generate-title', methods=['POST'])
 @login_required
 def generate_conversation_title(id):
+    """Generate a title for the conversation based on its messages using an LLM"""
     try:
-        model = request.args.get('model')
-        if not model:
-            return jsonify({'status': 'error', 'message': 'No model specified'}), 400
+        # Get the model from query parameters or use default
+        model = request.args.get('model', DEFAULT_MODEL)
+        app.logger.info(f"Generating title for conversation {id} using model {model}")
+        
+        # Get the conversation
+        conversation = db.get_user_conversation(current_user.id, id)
+        if not conversation:
+            app.logger.warning(f"Conversation {id} not found")
+            return jsonify({
+                'status': 'error',
+                'message': 'Conversation not found'
+            }), 404
             
-        # Safely get bot instance
-        bot = None
-        if 'bot:' in model:
-            bot_id = model.split('bot:')[1]
-            if hasattr(Bot, 'get'):
-                bot = Bot.get(bot_id)
-            else:
-                app.logger.error("Bot model missing required 'get' method")
+        # Get messages
+        messages = db.get_conversation_messages(id)
+        if not messages or len(messages) == 0:
+            app.logger.warning(f"No messages found for conversation {id}")
+            return jsonify({
+                'status': 'error',
+                'message': 'No messages found'
+            }), 404
         
-        messages = get_title_generation_messages(id)
-        app.logger.info(f"Generating title with {len(messages)} messages")
+        # Check if we have at least one user message and one assistant message
+        user_messages = [m for m in messages if m['role'] == 'user']
+        assistant_messages = [m for m in messages if m['role'] == 'assistant']
         
-        response = ollama.generate_response(
-            messages=messages,
-            model=model,
-            timeout=5
-        )
+        if not user_messages:
+            app.logger.warning(f"No user message found in conversation {id}")
+            return jsonify({
+                'status': 'error',
+                'message': 'No user message found'
+            }), 404
         
-        return jsonify({'status': 'success', 'title': response})
+        # Extract first user message for fallback title
+        first_message = user_messages[0]['content']
+        fallback_title = first_message[:47] + '...' if len(first_message) > 50 else first_message
+        
+        # Check if the model is valid (don't restrict to AVAILABLE_MODELS)
+        valid_model = model and model != 'none'
+        
+        # Use the model if it's valid, otherwise use fallback
+        if not valid_model:
+            app.logger.info(f"No valid model specified for title generation, using fallback")
+            title = fallback_title
+        else:
+            try:
+                # Prepare messages for LLM
+                # Get up to first 3 message pairs for context
+                context_messages = []
+                for i, msg in enumerate(messages):
+                    if i >= 6:  # Limit to first 3 pairs (6 messages)
+                        break
+                    context_messages.append({
+                        'role': msg['role'],
+                        'content': msg['content']
+                    })
+                
+                # Create a very simple, direct prompt for title generation
+                system_prompt = "You will create a short, descriptive title (3-7 words) for a conversation. ONLY respond with the title text."
+                
+                # Prepare messages for the LLM
+                llm_messages = [
+                    {"role": "system", "content": system_prompt}
+                ]
+                
+                # Add context messages
+                llm_messages.extend(context_messages)
+                
+                # Add final instruction with explicit formatting - keep it extremely simple
+                llm_messages.append({"role": "user", "content": "Create a title for this conversation. Respond with ONLY the title text."})
+                
+                # For thinking models, use a more direct approach
+                if model in THINKING_MODELS:
+                    # Replace with a more direct approach for thinking models
+                    llm_messages = [
+                        {"role": "system", "content": "You will output ONLY a short title (3-7 words). No explanation, no thinking, no tags."}
+                    ]
+                    llm_messages.extend(context_messages)
+                    llm_messages.append({"role": "user", "content": "Title for this conversation (3-7 words):"})
+
+
+
+                
+                # Call the LLM with timeout
+                app.logger.info(f"Calling LLM with {len(llm_messages)} messages")
+                
+                # No need for a separate clean_title function anymore - we've simplified the approach
+                    
+                # Try to connect to Ollama with a short timeout and catch ALL exceptions
+                title = fallback_title  # Default to fallback
+                try:
+                    # Use a very short timeout to avoid hanging the request
+                    app.logger.info(f"Calling LLM with model {model} for title generation")
+                    
+                    response = call_llm(model, llm_messages, max_tokens=50, temperature=0.3, timeout=5)
+                    app.logger.info(f"Raw LLM response: '{response}'")
+                    
+                    # Only use the response if it's valid
+                    if response and response.strip():
+                        # Simple cleanup approach
+                        raw_title = response.strip()
+                        
+                        # Take first line only if multiple lines
+                        if '\n' in raw_title:
+                            raw_title = raw_title.split('\n')[0].strip()
+                        
+                        # Remove any HTML-like tags
+                        import re
+                        raw_title = re.sub(r'<[^>]+>', '', raw_title)
+                        
+                        # Remove quotes, punctuation, and extra spaces
+                        clean_title = raw_title.strip('"\'\'.,!?').strip()
+                        
+                        # Capitalize the first letter of each word for consistency
+                        clean_title = ' '.join(word.capitalize() for word in clean_title.split())
+                        
+                        # Limit to 50 characters if somehow still too long
+                        if len(clean_title) > 50:
+                            clean_title = clean_title[:47] + '...'
+                            
+                        # If we ended up with nothing useful, use fallback
+                        if clean_title and len(clean_title) >= 3:
+                            title = clean_title
+                        
+                        app.logger.info(f"Final generated title: {title}")
+                    else:
+                        app.logger.warning("LLM returned empty title, using fallback")
+                        app.logger.info(f"Using fallback title: {title}")
+                        
+                except ConnectionError as e:
+                    # Specific handling for connection errors
+                    app.logger.warning(f"Ollama connection error: {str(e)}")
+                    app.logger.info(f"Using fallback title: {title}")
+                except ValueError as e:
+                    # Specific handling for model errors
+                    app.logger.warning(f"Model error: {str(e)}")
+                    app.logger.info(f"Using fallback title: {title}")
+                except Exception as e:
+                    # Catch-all for any other errors
+                    app.logger.warning(f"Unexpected error in title generation: {str(e)}")
+            except Exception as e:
+                app.logger.error(f"Error in title generation process: {str(e)}")
+                title = fallback_title
+        
+        # Update conversation title
+        db.update_conversation_title(id, title)
+        
+        # Return the updated conversation data
+        updated_conversation = db.get_user_conversation(current_user.id, id)
+        return jsonify({
+            'status': 'success',
+            'title': title,
+            'conversation': updated_conversation
+        })
     except Exception as e:
-        app.logger.error(f"Title generation error: {str(e)}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        app.logger.error(f"Error generating title for conversation {id}: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
 
 @app.route('/api/embedding_models', methods=['GET'])
 def list_embedding_models():
@@ -1620,62 +1788,8 @@ def upload_file():
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def chat():
-    """Handle chat messages with proper RAG integration"""
-    try:
-        data = request.json
-        conversation_id = data.get('conversation_id')
-        message = data.get('message')
-        bot_id = data.get('bot_id')
-        
-        if not message:
-            return jsonify({'status': 'error', 'message': 'No message provided'}), 400
-            
-        # Get bot instance if specified
-        bot = None
-        collection_name = None
-        if bot_id:
-            try:
-                bot = Bot.get(bot_id)
-                if hasattr(bot, 'get_knowledge_base_collection'):
-                    collection_name = bot.get_knowledge_base_collection()
-            except Exception as e:
-                app.logger.error(f"Error getting bot {bot_id}: {str(e)}")
-        
-        # Determine if we should use RAG
-        use_rag = False
-        if bot and bot.has_knowledge_base:
-            try:
-                # Force check bot collection regardless of conversation
-                use_rag = rag.has_documents(
-                    bot_id=str(bot.id),
-                    conversation_id=conversation_id
-                )
-                app.logger.info(f"RAG {'enabled' if use_rag else 'disabled'} for bot {bot.id}")
-            except Exception as e:
-                app.logger.error(f"RAG check failed: {str(e)}", exc_info=True)
-        else:
-            app.logger.info("Using direct LLM (no RAG)")
-        
-        # Generate response
-        if use_rag:
-            response = rag.generate_response(
-                message,
-                conversation_id=conversation_id,
-                bot_id=str(bot.id),
-                collection_name=collection_name
-            )
-            app.logger.info(f"Used RAG with {len(response.context_docs)} context docs")
-        else:
-            response = ollama.generate_response(message)
-            
-        return jsonify({
-            'status': 'success',
-            'response': response,
-            'used_knowledge_base': use_rag
-        })
-    except Exception as e:
-        app.logger.error(f"Chat error: {str(e)}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    """Legacy chat endpoint"""
+    return generate()
 
 # ============================================================
 # Image Generation API (ComfyUI Integration)
@@ -2258,37 +2372,6 @@ def chat_with_bot(bot_id):
             'status': 'error',
             'message': str(e)
         }), 500
-
-def get_title_generation_messages(conversation_id):
-    """Get messages formatted for title generation"""
-    conversation = db.get_user_conversation(current_user.id, conversation_id)
-    if not conversation:
-        app.logger.warning(f"Conversation {conversation_id} not found")
-        return []
-        
-    messages = db.get_conversation_messages(conversation_id)
-    if not messages:
-        app.logger.warning(f"No messages for conversation {conversation_id}")
-        return []
-    
-    # Get first 3 message pairs for context
-    context_messages = []
-    for i, msg in enumerate(messages):
-        if i >= 6:  # Limit to first 3 pairs (6 messages)
-            break
-        context_messages.append({
-            'role': msg['role'],
-            'content': msg['content']
-        })
-    
-    # Prepare system prompt
-    system_prompt = "Create a short, descriptive title (3-7 words) for this conversation. Respond with ONLY the title text."
-    
-    return [
-        {"role": "system", "content": system_prompt},
-        *context_messages,
-        {"role": "user", "content": "Title for this conversation (3-7 words):"}
-    ]
 
 if __name__ == '__main__':
     app.run(debug=True)

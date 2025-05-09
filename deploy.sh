@@ -139,7 +139,7 @@ After=network.target
 User=$USER
 WorkingDirectory=$PWD
 Environment="PATH=$PWD/venv/bin:\$PATH"
-ExecStart=$PWD/venv/bin/gunicorn --bind 0.0.0.0:5000 --workers 4 --timeout 120 --access-logfile - --error-logfile - --log-level info --capture-output --enable-stdio-inheritance app:app
+ExecStart=$PWD/venv/bin/gunicorn --bind 0.0.0.0:5000 --timeout 1800 --workers 3 app:app
 Restart=always
 
 [Install]
