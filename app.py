@@ -1917,26 +1917,16 @@ def generate_image():
 
     try:
         for attempt in range(max_attempts):
-            # Queue status monitoring
-            if attempt % 5 == 0:
-                try:
-                    queue = requests.get('http://localhost:8188/queue', timeout=5).json()
-                    print(f"Queue status: {len(queue.get('queue_running', []))} running, "
-                          f"{len(queue.get('queue_pending', []))} pending")
-                except Exception as e:
-                    print(f"Queue check error: {str(e)[:100]}")
-
-            # Enhanced file monitoring
+            # File monitoring only
             if attempt % 3 == 0:
                 try:
                     files = sorted([f for f in os.listdir(comfy_output_dir) 
-                                   if f.startswith('MIDAS_Flux_Enhanced')],
-                                  key=lambda f: os.path.getmtime(os.path.join(comfy_output_dir, f)))
+                                  if f.startswith('MIDAS_Flux_Enhanced')],
+                                 key=lambda f: os.path.getmtime(os.path.join(comfy_output_dir, f)))
                     if files:
                         current_file = os.path.join(comfy_output_dir, files[-1])
                         current_size = os.path.getsize(current_file)
-                        modified = os.path.getmtime(current_file)
-                        print(f"Latest file: {files[-1]} ({current_size} bytes, modified {time.ctime(modified)})")
+                        print(f"Latest file: {files[-1]} ({current_size} bytes)")
                 except Exception as e:
                     print(f"File check error: {str(e)[:100]}")
 
