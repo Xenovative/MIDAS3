@@ -251,7 +251,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None,
         app.logger.error(f"Document check failed: {str(e)}", exc_info=True)
         return False
 
-def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, k=3):
+def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None, k=3):
     """
     Retrieve relevant documents for a query from the vector store
     Returns concatenated document contents as context string
@@ -324,15 +324,15 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         print("Please ensure the vector store has been set up correctly.")
         return ""
 
-def generate_response(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None):
-    """
-    Generate a response using RAG by:
-    1. Retrieving relevant documents
-    2. Formatting context
-    3. Generating LLM response
-    """
+def generate_response(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
+    """Generate response using either conversation or bot context"""
     try:
-        context = get_relevant_documents(query, collection_name, conversation_id)
+        context = get_relevant_documents(
+            query,
+            collection_name=collection_name,
+            conversation_id=conversation_id,
+            bot_id=bot_id
+        )
         
         prompt = f"""Use this context to answer:
         {context}
