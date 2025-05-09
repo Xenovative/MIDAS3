@@ -36,47 +36,47 @@ def get_available_models():
 def get_available_embedding_models():
     """Fetch available embedding models from Ollama"""
     try:
-        client = ollama.Client(host='http://localhost:11434')
-        models_data = client.list()
+        client = ollama.Client(host=OLLAMA_HOST)
+        models = client.list()['models']
         
-        # List of known embedding models for fallback detection
+        # List of known embedding model patterns
         known_embedding_models = [
-            'nomic-embed-text',
-            'all-minilm',
-            'mxbai-embed-large',
-            'e5',
-            'bge',
-            'dmeta-embedding-zh',
-            'herald/dmeta-embedding-zh'
+            'all-minilm', 'bge', 'nomic-embed', 'e5', 
+            'instructor', 'text-embedding', 'embedding'
         ]
         
-        if 'models' in models_data and models_data['models']:
-            # Filter for embedding models
-            filtered_models = []
-            for model in models_data['models']:
-                model_name = model.get('model', model.get('name', ''))
-                
-                # Method 1: Check model details for embedding indicators
-                try:
-                    model_info = client.show(model_name)
-                    # Check if model has embedding length property or contains 'embed' in architecture
-                    if ('embedding length' in str(model_info) or 
-                        'embed' in str(model_info.get('model', {}).get('architecture', '')).lower() or
-                        'bert' in str(model_info.get('model', {}).get('architecture', '')).lower()):
-                        filtered_models.append(model_name)
-                        continue
-                except Exception as e:
-                    print(f"Error getting details for model {model_name}: {e}")
-                
-                # Method 2: Fallback to name-based detection
-                if any(embed_model in model_name.lower() for embed_model in known_embedding_models):
-                    filtered_models.append(model_name)
+        embedding_models = []
+        
+        # Filter for embedding models
+        for model in models:
+            model_name = model['name'].lower()
             
-            return filtered_models if filtered_models else ['nomic-embed-text']
+            # Get model details
+            try:
+                model_info = client.show(model['name'])
+                
+                # Check if model has embedding capabilities
+                if ('embedding length' in str(model_info) or 
+                    'embedding' in str(model_info)):
+                    embedding_models.append(model['name'])
+                    continue
+            except Exception:
+                pass
+            
+            # Fallback to name-based detection
+            if any(embed_model in model_name for embed_model in known_embedding_models):
+                embedding_models.append(model['name'])
+        
+        return list(set(embedding_models))  # Remove duplicates
     except Exception as e:
         print(f"Error fetching embedding models from Ollama: {e}")
-        
-    return ['nomic-embed-text']
+        # Fallback to default list if Ollama is unavailable
+        return [
+            'nomic-embed-text',
+            'all-minilm',
+            'bge-small-en-v1.5',
+            'e5-small-v2'
+        ]
 
 def default_models():
     """Return default models if Ollama isn't running or no models found"""
