@@ -1755,9 +1755,9 @@ def chat():
             
         # Get bot and check for knowledge base
         bot = Bot.get(bot_id) if bot_id else None
-        use_rag = bot and bot.knowledge_files
+        use_rag = bot and hasattr(bot, 'knowledge_files') and bot.knowledge_files
         
-        app.logger.info(f"Chat request - Bot: {bot_id}, KB: {use_rag}, Conv: {conversation_id}")
+        app.logger.info(f"Chat request - Bot: {bot_id if bot_id else 'None'}, KB: {use_rag}, Conv: {conversation_id}")
         
         if use_rag:
             # Use RAG with bot's knowledge base
