@@ -216,25 +216,25 @@ def _collection_has_docs(collection_name):
     return vectorstore._collection.count() > 0
 
 def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_id=None):
-    """Returns True if EITHER collection has documents"""
+    """Returns True if bot collection has documents (when bot_id exists)"""
     try:
-        # Always check bot collection if ID provided
+        # FIRST and PRIMARY check - bot collection (if ID exists)
         if bot_id:
             bot_collection = f"bot_{bot_id}"
-            app.logger.info(f"Checking bot collection: {bot_collection}")
+            app.logger.info(f"PRIMARY CHECK - Bot collection: {bot_collection}")
             if _collection_has_docs(bot_collection):
                 return True
-                
-        # Check conversation collection if ID provided
+            
+        # SECONDARY check - conversation collection (only if no bot_id or bot collection empty)
         if conversation_id:
             conv_collection = get_conversation_collection_name(conversation_id)
-            app.logger.info(f"Checking conversation collection: {conv_collection}")
+            app.logger.info(f"SECONDARY CHECK - Conversation collection: {conv_collection}")
             if _collection_has_docs(conv_collection):
                 return True
                 
         return False
     except Exception as e:
-        app.logger.error(f"Document check failed: {str(e)}", exc_info=True)
+        app.logger.error(f"CRITICAL ERROR in document check: {str(e)}", exc_info=True)
         return False
 
 def _get_docs_from_collection(query, collection_name, k):
