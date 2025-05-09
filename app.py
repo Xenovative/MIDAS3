@@ -1816,7 +1816,7 @@ def generate_image():
             width, height = 1024, 1024
         
     # ComfyUI API endpoint
-    comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://localhost:8188')
+    comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://127.0.0.1:8188')
     comfy_ws_url = os.environ.get('COMFYUI_WS_URL', 'ws://127.0.0.1:8188')
     comfy_output_dir = os.environ.get('COMFYUI_OUTPUT_DIR', 'MIDAS_standalone/ComfyUI/output')
         
@@ -1867,10 +1867,7 @@ def generate_image():
         return jsonify({'status': 'error', 'message': 'No workflow specified'}), 400
         
     # Submit to ComfyUI
-    comfyui_url = f"{comfy_api_url.rstrip('/')}/prompt"
-    print(f"=== Starting image generation ===")
-    print(f"Prompt ID: {request_id}")
-    print(f"Output dir: {comfy_output_dir}")
+    comfyui_url = f"{comfy_api_url}/prompt"
     print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
     resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=120)
     print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
@@ -1879,104 +1876,86 @@ def generate_image():
     print(f"ComfyUI prompt_id: {result.get('prompt_id')}")
         
     # Wait for the generation to complete
-    max_attempts = 600  # Maximum wait time = max_attempts * sleep_time (10 minutes)
-    sleep_time = 0.5  # seconds
+    max_attempts = 300  # Maximum wait time = max_attempts * sleep_time (5 minutes)
+    sleep_time = 1  # seconds
 
-    for attempt in range(max_attempts):
-        # First check queue status
-        queue_resp = requests.get(f'{comfy_api_url.rstrip("/")}/queue', timeout=30)
-        print(f"\n=== Queue Check ===")
-        print(f"Attempt {attempt + 1}/{max_attempts}")
-        print(f"Queue status - Running: {len(queue_resp.json().get('queue_running', []))}")
-        print(f"Queue status - Pending: {len(queue_resp.json().get('queue_pending', []))}")
+    for _ in range(max_attempts):
+        print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {_ + 1}/{max_attempts})")
+        history_resp = requests.get(f'http://localhost:8188/history/{result.get("prompt_id")}', timeout=10)
+        print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
         
-        if queue_resp.status_code == 200:
-            queue_data = queue_resp.json()
-            # Check prompt status
-            if result.get('prompt_id') in queue_data.get('queue_running', []):
-                print(f"Prompt {result['prompt_id']} still processing")
-                time.sleep(sleep_time)
-                continue
-            elif result.get('prompt_id') in queue_data.get('queue_pending', []):
-                print(f"Prompt {result['prompt_id']} still in queue")
-                time.sleep(sleep_time)
-                continue
-            else:
-                # Prompt finished, check outputs
-                outputs_resp = requests.get(f'{comfy_api_url.rstrip("/")}/history/{result.get("prompt_id")}', timeout=30)
-                if outputs_resp.status_code == 200:
-                    outputs_data = outputs_resp.json()
-                    if outputs_data.get(result.get('prompt_id'), {}).get('outputs'):
-                        outputs = outputs_data[result.get('prompt_id')]['outputs']
-                        image_data = None
-                        image_filename = None
+        if history_resp.status_code == 200:
+            history_data = history_resp.json()
+            # Check if the prompt has outputs (meaning it's complete)
+            if history_data.get(result.get('prompt_id'), {}).get('outputs'):
+                # Get the outputs for the SaveImage node
+                outputs = history_data[result.get('prompt_id')]['outputs']
+                image_data = None
+                image_filename = None
 
-                        # Look through all outputs to find image data
-                        for node_id, node_output in outputs.items():
-                            # Check if this is an image output
-                            if node_output.get('images'):
-                                # Get the first image
-                                image_filename = node_output['images'][0]['filename']
-                                image_data = node_output['images'][0]
-                                break
+                # Look through all outputs to find image data
+                for node_id, node_output in outputs.items():
+                    # Check if this is an image output
+                    if node_output.get('images'):
+                        # Get the first image
+                        image_filename = node_output['images'][0]['filename']
+                        image_data = node_output['images'][0]
+                        break
 
-                        if image_filename:
-                            # Construct path to the image in ComfyUI's output directory
-                            image_path = os.path.join(comfy_output_dir, image_filename)
-                            print(f"Looking for image at: {image_path}")  # Debug output
-                            # Make sure the file exists
-                            if os.path.exists(image_path):
-                                print(f"Found image at: {image_path}")  # Debug output
-                                # Read and encode the image
-                                with open(image_path, 'rb') as img_file:
-                                    img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
+                if image_filename:
+                    # Construct path to the image in ComfyUI's output directory
+                    image_path = os.path.join(comfy_output_dir, image_filename)
+                    print(f"Looking for image at: {image_path}")  # Debug output
+                    # Make sure the file exists
+                    if os.path.exists(image_path):
+                        print(f"Found image at: {image_path}")  # Debug output
+                        # Read and encode the image
+                        with open(image_path, 'rb') as img_file:
+                            img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
 
-                                    # Save message to conversation history if conversation_id is provided
-                                    if conversation_id:
-                                        try:
-                                            # Use the db.add_message function to properly save the message
-                                            # This ensures proper persistence and updates conversation timestamps
-                                            message_id = db.add_message(
-                                                conversation_id=conversation_id,
-                                                role='assistant',
-                                                content=f'',
-                                                thinking=None,
-                                                images=[img_b64],  
-                                                attachment_filename=image_filename
-                                            )
+                            # Save message to conversation history if conversation_id is provided
+                            if conversation_id:
+                                try:
+                                    # Use the db.add_message function to properly save the message
+                                    # This ensures proper persistence and updates conversation timestamps
+                                    message_id = db.add_message(
+                                        conversation_id=conversation_id,
+                                        role='assistant',
+                                        content=f'',
+                                        thinking=None,
+                                        images=[img_b64],  
+                                        attachment_filename=image_filename
+                                    )
 
-                                            if not message_id:
-                                                print("Failed to save image message to database")
-                                                # Log the error but don't fail the request
-                                                import traceback
-                                                traceback.print_exc()
-                                        except Exception as db_error:
-                                            print(f"Error saving image message to database: {db_error}")
-                                            # Log the full error details for debugging
-                                            import traceback
-                                            traceback.print_exc()
-                                            # Return a more informative error response
-                                            return jsonify({
-                                                'status': 'error',
-                                                'message': f'Failed to save image message: {str(db_error)}'
-                                            }), 500
-
+                                    if not message_id:
+                                        print("Failed to save image message to database")
+                                        # Log the error but don't fail the request
+                                        import traceback
+                                        traceback.print_exc()
+                                except Exception as db_error:
+                                    print(f"Error saving image message to database: {db_error}")
+                                    # Log the full error details for debugging
+                                    import traceback
+                                    traceback.print_exc()
+                                    # Return a more informative error response
                                     return jsonify({
-                                        'status': 'success', 
-                                        'image_base64': img_b64, 
-                                        'filename': image_filename,
-                                        'workflow': workflow,
-                                        'seed': seed  # Include the seed in the response
-                                    })
+                                        'status': 'error',
+                                        'message': f'Failed to save image message: {str(db_error)}'
+                                    }), 500
+
+                            return jsonify({
+                                'status': 'success', 
+                                'image_base64': img_b64, 
+                                'filename': image_filename,
+                                'workflow': workflow,
+                                'seed': seed  # Include the seed in the response
+                            })
 
                 # If we couldn't find the image or it wasn't saved yet
                 return jsonify({
                     'status': 'error',
                     'message': 'Image generation completed but image file not found'
                 }), 404
-
-        else:
-            time.sleep(sleep_time)  # Wait before next attempt
 
     # If we've exhausted all attempts and still haven't found the image
     return jsonify({
