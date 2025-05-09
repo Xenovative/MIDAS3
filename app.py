@@ -1753,11 +1753,26 @@ def chat():
         if not message:
             return jsonify({'status': 'error', 'message': 'No message provided'}), 400
             
-        # Get bot and check for knowledge base
-        bot = Bot.get(bot_id) if bot_id else None
-        use_rag = bot and hasattr(bot, 'knowledge_files') and bot.knowledge_files
+        # Get bot safely
+        bot = None
+        if bot_id:
+            try:
+                if hasattr(Bot, 'get'):
+                    bot = Bot.get(bot_id)
+                else:
+                    app.logger.error("Bot model missing required 'get' method")
+            except Exception as e:
+                app.logger.error(f"Error getting bot {bot_id}: {str(e)}")
         
-        app.logger.info(f"Chat request - Bot: {bot_id if bot_id else 'None'}, KB: {use_rag}, Conv: {conversation_id}")
+        # Check for knowledge base
+        use_rag = False
+        if bot and hasattr(bot, 'knowledge_files') and bot.knowledge_files:
+            if hasattr(bot, 'get_knowledge_base_collection'):
+                use_rag = True
+            else:
+                app.logger.error("Bot missing get_knowledge_base_collection method")
+        
+        app.logger.info(f"Chat request - Bot: {bot_id or 'None'}, KB: {use_rag}, Conv: {conversation_id or 'New'}")
         
         if use_rag:
             # Use RAG with bot's knowledge base
