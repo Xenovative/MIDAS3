@@ -1620,7 +1620,7 @@ def upload_file():
 @app.route('/api/chat', methods=['POST'])
 @login_required
 def chat():
-    """Handle chat messages with RAG when bot has knowledge base"""
+    """Handle chat messages with proper RAG integration"""
     try:
         data = request.json
         conversation_id = data.get('conversation_id')
@@ -1630,44 +1630,33 @@ def chat():
         if not message:
             return jsonify({'status': 'error', 'message': 'No message provided'}), 400
             
-        # Get bot safely
+        # Get bot instance if specified
         bot = None
+        collection_name = None
         if bot_id:
             try:
-                if hasattr(Bot, 'get'):
-                    bot = Bot.get(bot_id)
-                else:
-                    app.logger.error("Bot model missing required 'get' method")
+                bot = Bot.get(bot_id)
+                if hasattr(bot, 'get_knowledge_base_collection'):
+                    collection_name = bot.get_knowledge_base_collection()
             except Exception as e:
                 app.logger.error(f"Error getting bot {bot_id}: {str(e)}")
         
-        # Check for knowledge base
+        # Determine if we should use RAG
         use_rag = False
-        if bot and hasattr(bot, 'knowledge_files') and bot.knowledge_files:
-            if hasattr(bot, 'get_knowledge_base_collection'):
-                use_rag = True
-            else:
-                app.logger.error("Bot missing get_knowledge_base_collection method")
-        
-        app.logger.info(f"Chat request - Bot: {bot_id or 'None'}, KB: {use_rag}, Conv: {conversation_id or 'New'}")
-        
-        if use_rag:
-            # Enhanced RAG logging
-            app.logger.info(f"Using RAG with collection: {bot.get_knowledge_base_collection()}")
-            app.logger.info(f"Bot knowledge files: {len(bot.knowledge_files)} files")
-            
-            # Get RAG context for debugging
-            rag_context = rag.get_debug_info(bot.get_knowledge_base_collection()) 
-            app.logger.info(f"RAG context: {json.dumps(rag_context, indent=2)}")
-            
-            response = rag.generate_response(
-                message,
-                conversation_id=conversation_id,
-                collection_name=bot.get_knowledge_base_collection()
-            )
-            app.logger.info(f"RAG response generated (length: {len(response) if response else 0})")
+        if collection_name and rag.has_documents(collection_name):
+            use_rag = True
+            app.logger.info(f"Using RAG with collection: {collection_name}")
         else:
             app.logger.info("Using direct LLM (no RAG)")
+        
+        # Generate response
+        if use_rag:
+            response = rag.generate_response(
+                message,
+                collection_name=collection_name,
+                conversation_id=conversation_id
+            )
+        else:
             response = ollama.generate_response(message)
             
         return jsonify({

@@ -214,6 +214,38 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
+def get_relevant_documents(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, k=3):
+    """
+    Retrieve relevant documents for a query from the vector store
+    Returns concatenated document contents as context string
+    """
+    try:
+        # Use conversation-specific collection if provided
+        if conversation_id:
+            collection_name = get_conversation_collection_name(conversation_id)
+            
+        # Load vector store
+        vectorstore = Chroma(
+            persist_directory=CHROMA_PERSIST_DIR,
+            embedding_function=ollama_ef,
+            collection_name=collection_name
+        )
+        
+        # Get relevant documents
+        docs = vectorstore.similarity_search(query, k=k)
+        
+        # Log retrieval results
+        print(f"Retrieved {len(docs)} documents for query: {query[:50]}...")
+        if docs:
+            print(f"First document content: {docs[0].page_content[:100]}...")
+        
+        # Combine document contents
+        return "\n\n".join([doc.page_content for doc in docs])
+        
+    except Exception as e:
+        print(f"Error retrieving documents: {e}")
+        return ""
+
 def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=3):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
@@ -254,6 +286,42 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         print(f"Error retrieving context from Chroma vector store: {e}")
         print("Please ensure the vector store has been set up correctly.")
         return ""
+
+def generate_response(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None):
+    """
+    Generate a response using RAG by:
+    1. Retrieving relevant documents
+    2. Formatting context
+    3. Generating LLM response
+    """
+    try:
+        # Get relevant documents
+        context = get_relevant_documents(
+            query,
+            collection_name=collection_name,
+            conversation_id=conversation_id,
+            k=3
+        )
+        
+        if not context:
+            print("No relevant documents found, using direct response")
+            return "I couldn't find relevant information to answer that."
+            
+        # Format prompt with context
+        prompt = f"""Use the following context to answer the question:
+        
+        Context:
+        {context}
+        
+        Question: {query}
+        
+        Answer:"""
+        
+        return prompt
+        
+    except Exception as e:
+        print(f"Error in RAG response generation: {e}")
+        return "I encountered an error processing your request."
 
 def get_debug_info(collection_name):
     """Return debug information about the RAG state"""
