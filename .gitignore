@@ -102,7 +102,7 @@ database.db
 /data/bots/
 
 # User preferences
-
+user_preferences.json
 # App log
 app.log
 
