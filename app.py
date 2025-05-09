@@ -1866,18 +1866,20 @@ def generate_image():
     else:
         return jsonify({'status': 'error', 'message': 'No workflow specified'}), 400
         
-    # Submit to ComfyUI
-    comfyui_url = f"{comfy_api_url}/prompt"
-    print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
-    resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=120)
-    print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
-    print(f"ComfyUI response headers: {resp.headers}")  # Debug headers
-    resp.raise_for_status()
-    result = resp.json()
-    print(f"ComfyUI prompt_id: {result.get('prompt_id')}")
-    if not result.get('prompt_id'):
-        return jsonify({'status': 'error', 'message': 'ComfyUI did not return a prompt_id'}), 500
-    
+    print(f"Submitting to ComfyUI at {comfy_api_url} with payload...")
+    try:
+        resp = requests.post(comfy_api_url, json={'prompt': comfyui_payload}, timeout=120)
+        resp.raise_for_status()
+        result = resp.json()
+        print(f"ComfyUI response: {resp.status_code}, content: {resp.text}")
+    except requests.exceptions.RequestException as e:
+        print(f"ComfyUI submission failed: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'ComfyUI submission failed: {str(e)}',
+            'comfyui_status': getattr(e.response, 'status_code', None)
+        }), 500
+
     # Verify ComfyUI is actually processing the prompt
     print(f"Verifying ComfyUI is processing prompt {result.get('prompt_id')}")
     status_resp = requests.get('http://localhost:8188/queue', timeout=30)
