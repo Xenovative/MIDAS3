@@ -1816,8 +1816,7 @@ def generate_image():
             width, height = 1024, 1024
         
     # ComfyUI API endpoint
-    comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://127.0.0.1:8188')
-    comfy_ws_url = os.environ.get('COMFYUI_WS_URL', 'ws://127.0.0.1:8188')
+    comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://localhost:8188')
     comfy_output_dir = os.environ.get('COMFYUI_OUTPUT_DIR', 'MIDAS_standalone/ComfyUI/output')
         
     # Determine which workflow to use
@@ -1879,28 +1878,42 @@ def generate_image():
     max_attempts = 300  # Maximum wait time = max_attempts * sleep_time (5 minutes)
     sleep_time = 1  # seconds
 
-    for _ in range(max_attempts):
-        print(f"Checking history for prompt_id {result.get('prompt_id')} (attempt {_ + 1}/{max_attempts})")
-        history_resp = requests.get(f'http://localhost:8188/history/{result.get("prompt_id")}', timeout=10)
-        print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
+    # Wait at least 120 seconds before first check to give time for image generation
+    print(f"Waiting 120 seconds for image generation to complete for prompt_id {result.get('prompt_id')}")
+    time.sleep(120)
+    
+    # First check after initial wait
+    print(f"Checking history for prompt_id {result.get('prompt_id')} (first check)")
+    history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
+    print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
+    
+    # If not ready, wait another 150 seconds
+    if history_resp.status_code != 200 or not history_resp.json().get(result.get('prompt_id'), {}).get('outputs'):
+        print(f"Image not ready yet. Waiting additional 150 seconds for prompt_id {result.get('prompt_id')}")
+        time.sleep(150)
         
-        if history_resp.status_code == 200:
-            history_data = history_resp.json()
-            # Check if the prompt has outputs (meaning it's complete)
-            if history_data.get(result.get('prompt_id'), {}).get('outputs'):
-                # Get the outputs for the SaveImage node
-                outputs = history_data[result.get('prompt_id')]['outputs']
-                image_data = None
-                image_filename = None
+        # Second check after additional wait
+        print(f"Checking history again for prompt_id {result.get('prompt_id')} (second check)")
+        history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
+        print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
+    
+    if history_resp.status_code == 200:
+        history_data = history_resp.json()
+        # Check if the prompt has outputs (meaning it's complete)
+        if history_data.get(result.get('prompt_id'), {}).get('outputs'):
+            # Get the outputs for the SaveImage node
+            outputs = history_data[result.get('prompt_id')]['outputs']
+            image_data = None
+            image_filename = None
 
-                # Look through all outputs to find image data
-                for node_id, node_output in outputs.items():
-                    # Check if this is an image output
-                    if node_output.get('images'):
-                        # Get the first image
-                        image_filename = node_output['images'][0]['filename']
-                        image_data = node_output['images'][0]
-                        break
+            # Look through all outputs to find image data
+            for node_id, node_output in outputs.items():
+                # Check if this is an image output
+                if node_output.get('images'):
+                    # Get the first image
+                    image_filename = node_output['images'][0]['filename']
+                    image_data = node_output['images'][0]
+                    break
 
                 if image_filename:
                     # Construct path to the image in ComfyUI's output directory
