@@ -17,6 +17,7 @@ pandas==2.2.3
 numpy==1.26.4
 pypdf==5.4.0
 unstructured==0.17.2
+jieba==0.42.1  # Chinese word segmentation
 
 # Security Critical
 cryptography>=44.0.3

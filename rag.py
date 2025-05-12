@@ -209,7 +209,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         return False
 
 def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=15):
-    """Retrieve relevant document chunks for a given query with optimized performance"""
+    """Retrieve relevant document chunks for a given query with optimized performance and multilingual support"""
     try:
         # Use conversation-specific collection if provided
         if conversation_id:
@@ -226,21 +226,74 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             collection_name=collection_name
         )
         
-        # Use MMR retrieval for better diversity of results
-        try:
-            # First try MMR retrieval for better diversity
-            docs = vectorstore.max_marginal_relevance_search(
-                query, 
-                k=n_results,
-                fetch_k=n_results*2,  # Fetch more candidates for better selection
-                lambda_mult=0.7  # Balance between relevance and diversity
-            )
-        except Exception as mmr_error:
-            # Fall back to regular similarity search if MMR fails
-            print(f"MMR search failed, falling back to similarity search: {str(mmr_error)}")
-            docs = vectorstore.similarity_search(query, k=n_results)
+        # Log the query for debugging
+        print(f"Processing query: '{query}' in collection '{collection_name}'")
+        
+        # Check if query is in Chinese (or other non-Latin script)
+        has_chinese = any(u'\u4e00' <= c <= u'\u9fff' for c in query)
+        if has_chinese:
+            print(f"Detected Chinese query: '{query}'")
+            # For Chinese queries, we'll try both similarity search and keyword search
+            try:
+                # First try similarity search with higher k for Chinese
+                docs = vectorstore.similarity_search(
+                    query, 
+                    k=n_results*2  # Double the results for Chinese queries
+                )
+                print(f"Similarity search returned {len(docs)} results for Chinese query")
+                
+                # If we got very few results, try a more aggressive approach
+                if len(docs) < 5:
+                    # Try searching with individual characters/words
+                    import jieba  # Chinese word segmentation
+                    words = list(jieba.cut(query))
+                    print(f"Segmented query into words: {words}")
+                    
+                    # Search for each word and combine results
+                    all_docs = []
+                    for word in words:
+                        if len(word.strip()) > 0:
+                            word_docs = vectorstore.similarity_search(word, k=5)
+                            all_docs.extend(word_docs)
+                            print(f"Word '{word}' returned {len(word_docs)} results")
+                    
+                    # Remove duplicates by document ID
+                    seen_ids = set()
+                    unique_docs = []
+                    for doc in all_docs:
+                        doc_id = doc.metadata.get('doc_id', str(hash(doc.page_content)))
+                        if doc_id not in seen_ids:
+                            seen_ids.add(doc_id)
+                            unique_docs.append(doc)
+                    
+                    # If we found more docs with word-by-word search, use those
+                    if len(unique_docs) > len(docs):
+                        print(f"Using word-by-word search results: {len(unique_docs)} docs")
+                        docs = unique_docs[:n_results*2]  # Limit to twice the requested results
+            except Exception as e:
+                print(f"Error in Chinese query processing: {str(e)}")
+                # Fall back to regular similarity search
+                docs = vectorstore.similarity_search(query, k=n_results)
+        else:
+            # For non-Chinese queries, use MMR for better diversity
+            try:
+                # First try MMR retrieval for better diversity
+                docs = vectorstore.max_marginal_relevance_search(
+                    query, 
+                    k=n_results,
+                    fetch_k=n_results*2,  # Fetch more candidates for better selection
+                    lambda_mult=0.7  # Balance between relevance and diversity
+                )
+            except Exception as mmr_error:
+                # Fall back to regular similarity search if MMR fails
+                print(f"MMR search failed, falling back to similarity search: {str(mmr_error)}")
+                docs = vectorstore.similarity_search(query, k=n_results)
         
         # Format context with source grouping for better context
+        if not docs:
+            print(f"No documents found for query: '{query}'")
+            return ""
+            
         context_parts = []
         sources = {}
         for doc in docs:
