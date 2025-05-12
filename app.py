@@ -23,8 +23,12 @@ from flask import Flask, render_template, request, jsonify, Response, redirect, 
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
 from passlib.hash import bcrypt
 import sqlite3  # Import sqlite3 here
-from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader, UnstructuredXMLLoader
-from fast_loaders import FastXMLLoader
+from langchain_community.document_loaders import (
+    PyPDFLoader,
+    UnstructuredXMLLoader,
+    TextLoader,
+    UnstructuredMarkdownLoader
+)
 
 app = Flask(__name__, 
            template_folder=os.path.join(os.path.dirname(__file__), 'templates'),
@@ -82,7 +86,7 @@ def load_user(user_id):
     return None
     
 # --- Helper Functions ---
-def call_llm(model, messages, max_tokens=8192, temperature=0.7, top_p=0.95, timeout=30):
+def call_llm(model, messages, max_tokens=500, temperature=0.7, top_p=0.95, timeout=10):
     """Call an LLM model with the given messages and parameters"""
     try:
         app.logger.info(f"Calling LLM model {model} with {len(messages)} messages (timeout: {timeout}s)")
@@ -2769,7 +2773,7 @@ def delete_knowledge_file(bot_id, filename):
         }), 500
         
 def reindex_bot_knowledge(bot):
-    """Re-index all knowledge files for a bot with optimized performance"""
+    """Re-index all knowledge files for a bot"""
     try:
         app.logger.info(f"[RAG] Re-indexing knowledge files for bot {bot.id}")
         kb_dir = bot.get_knowledge_base_path()
@@ -2792,37 +2796,6 @@ def reindex_bot_knowledge(bot):
         total_chunks = 0
         start_time = time.time()
         
-        # Check if any files are XML and might contain Chinese content
-        has_chinese_content = any(f.endswith('.xml') for f in bot.knowledge_files)
-        
-        # Use Chinese-specific embedding model if we have XML files that might contain Chinese
-        embedding_function = rag.get_embedding_function("漢語" if has_chinese_content else None)
-        app.logger.info(f"[RAG] Using embedding model: {embedding_function.model}")
-        
-        # Create vectorstore once for all files with appropriate embedding model
-        vectorstore = rag.Chroma(
-            persist_directory=rag.CHROMA_PERSIST_DIR, 
-            embedding_function=embedding_function, 
-            collection_name=collection_name
-        )
-        
-        # Check if collection already exists and clear it if needed
-        try:
-            existing_count = vectorstore._collection.count()
-            if existing_count > 0:
-                app.logger.info(f"[RAG] Clearing existing collection with {existing_count} documents")
-                vectorstore._collection.delete()
-                app.logger.info(f"[RAG] Existing collection cleared")
-        except Exception as ce:
-            app.logger.warning(f"[RAG] Error checking/clearing collection: {str(ce)}")
-        
-        # Optimize batch size based on file count
-        batch_size = 500 if total_files > 5 else 200
-        app.logger.info(f"[RAG] Using batch size of {batch_size} for indexing")
-        
-        # Process files in parallel for faster indexing
-        all_docs = []
-        
         for i, filename in enumerate(bot.knowledge_files):
             try:
                 # Update progress
@@ -2835,22 +2808,21 @@ def reindex_bot_knowledge(bot):
                     app.logger.warning(f"[RAG] File {filename} not found at {file_path}")
                     continue
                     
-                # Select appropriate loader with optimized settings
+                # Select appropriate loader
                 if filename.endswith('.pdf'):
                     loader = PyPDFLoader(file_path)
                 elif filename.endswith('.xml'):
-                    # Use our custom fast XML loader
-                    loader = FastXMLLoader(file_path)
+                    loader = UnstructuredXMLLoader(file_path)
                 elif filename.endswith('.md'):
                     loader = UnstructuredMarkdownLoader(file_path)
                 else:  # .txt
-                    loader = TextLoader(file_path, encoding="utf-8")
+                    loader = TextLoader(file_path)
                 
                 # Load and process documents
                 app.logger.info(f"[RAG] Loading {filename} for re-indexing")
                 documents = loader.load()
                 
-                # Add metadata in batch for efficiency
+                # Add metadata
                 for doc in documents:
                     if not hasattr(doc, 'metadata') or not doc.metadata:
                         doc.metadata = {}
@@ -2858,12 +2830,10 @@ def reindex_bot_knowledge(bot):
                     doc.metadata['filename'] = filename
                     doc.metadata['bot_id'] = bot.id
                 
-                # Split documents with optimized settings
+                # Split documents
                 text_splitter = rag.RecursiveCharacterTextSplitter(
                     chunk_size=rag.CHUNK_SIZE, 
-                    chunk_overlap=rag.CHUNK_OVERLAP,
-                    length_function=len,  # Use faster length function
-                    separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""]  # Optimize separators
+                    chunk_overlap=rag.CHUNK_OVERLAP
                 )
                 split_docs = text_splitter.split_documents(documents)
                 chunk_count = len(split_docs)
@@ -2873,35 +2843,37 @@ def reindex_bot_knowledge(bot):
                 total_chunks += chunk_count
                 app.indexing_progress[bot.id]['total_chunks'] = total_chunks
                 
-                # Collect all docs for batch processing
-                all_docs.extend(split_docs)
+                # Add to vector store in batches to show progress
+                vectorstore = rag.Chroma(
+                    persist_directory=rag.CHROMA_PERSIST_DIR, 
+                    embedding_function=rag.ollama_ef, 
+                    collection_name=collection_name
+                )
+                
+                # Process in batches of 100 chunks
+                batch_size = 100
+                for j in range(0, len(split_docs), batch_size):
+                    batch = split_docs[j:j+batch_size]
+                    vectorstore.add_documents(batch)
+                    
+                    # Update progress after each batch
+                    chunks_processed = j + len(batch)
+                    app.indexing_progress[bot.id]['chunks_processed'] = app.indexing_progress[bot.id].get('chunks_processed', 0) + len(batch)
+                    
+                    # Calculate overall progress (files + current chunks)
+                    if total_chunks > 0:
+                        chunk_progress = chunks_processed / chunk_count
+                        file_progress = i / total_files
+                        # Weight: 20% for file progress, 80% for chunk progress within current file
+                        combined_progress = (file_progress * 0.2) + (chunk_progress * 0.8 / total_files)
+                        app.indexing_progress[bot.id]['progress'] = combined_progress
+                
+                vectorstore.persist()
+                
                 indexed_files.append(filename)
-                
-                # Process in larger batches for better performance
-                if len(all_docs) >= batch_size:
-                    app.logger.info(f"[RAG] Processing batch of {len(all_docs)} chunks")
-                    vectorstore.add_documents(all_docs)
-                    
-                    # Update progress
-                    app.indexing_progress[bot.id]['chunks_processed'] = app.indexing_progress[bot.id].get('chunks_processed', 0) + len(all_docs)
-                    app.indexing_progress[bot.id]['progress'] = (i + 0.5) / total_files if total_files > 0 else 0.5
-                    
-                    # Clear processed docs to free memory
-                    all_docs = []
-                    
-                    # Persist after each batch
-                    vectorstore.persist()
-                
-                app.logger.info(f"[RAG] Successfully processed {filename}")
+                app.logger.info(f"[RAG] Successfully re-indexed {filename}")
             except Exception as e:
-                app.logger.error(f"[RAG] Error processing {filename}: {str(e)}")
-        
-        # Process any remaining docs
-        if all_docs:
-            app.logger.info(f"[RAG] Processing final batch of {len(all_docs)} chunks")
-            vectorstore.add_documents(all_docs)
-            app.indexing_progress[bot.id]['chunks_processed'] = app.indexing_progress[bot.id].get('chunks_processed', 0) + len(all_docs)
-            vectorstore.persist()
+                app.logger.error(f"[RAG] Error re-indexing {filename}: {str(e)}")
         
         # Mark processing as complete
         processing_time = time.time() - start_time
@@ -2912,11 +2884,10 @@ def reindex_bot_knowledge(bot):
             'total_files': total_files,
             'chunks_processed': total_chunks,
             'total_chunks': total_chunks,
-            'processing_time': processing_time,
-            'speed': f"{total_chunks / processing_time:.1f} chunks/sec"
+            'processing_time': processing_time
         }
         
-        app.logger.info(f"[RAG] Re-indexing complete for bot {bot.id}. Processed {total_chunks} chunks in {processing_time:.2f}s ({total_chunks / processing_time:.1f} chunks/sec)")
+        app.logger.info(f"[RAG] Re-indexing complete for bot {bot.id}. Processed {total_chunks} chunks in {processing_time:.2f}s")
         return indexed_files
     except Exception as e:
         app.logger.error(f"[RAG] Error in re-indexing: {str(e)}")

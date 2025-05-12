@@ -169,24 +169,6 @@ sudo mkdir -p $INSTALL_DIR/data/uploads
 sudo mkdir -p $INSTALL_DIR/data/conversations
 sudo mkdir -p $INSTALL_DIR/data/models
 
-# Create and persist ChromaDB directory
-sudo mkdir -p $INSTALL_DIR/db/chroma_db
-
-# Preserve existing ChromaDB data if it exists
-if [ -d "$CURRENT_DIR/db/chroma_db" ]; then
-    echo "Preserving existing ChromaDB data..."
-    sudo cp -R $CURRENT_DIR/db/chroma_db/* $INSTALL_DIR/db/chroma_db/
-    echo "ChromaDB data preserved."
-fi
-
-# Set proper permissions
-sudo chmod -R 777 $INSTALL_DIR/db
-
-# Add symbolic link to ensure persistence
-echo "Creating symbolic link for ChromaDB persistence..."
-cd $INSTALL_DIR
-sudo ln -sf /MIDAS3/db/chroma_db db/chroma_db
-
 # ComfyUI output directory
 echo "Creating ComfyUI output directory..."
 sudo mkdir -p /MIDAS_standalone/ComfyUI/output

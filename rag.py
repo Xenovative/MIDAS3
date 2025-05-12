@@ -12,10 +12,6 @@ DEFAULT_COLLECTION_NAME = "rag_documents"
 CHUNK_SIZE = 2000  # Increased from 1000 for more context per chunk
 CHUNK_OVERLAP = 400  # Increased overlap to maintain context between chunks
 
-# Performance optimization settings
-PARALLEL_PROCESSING = True
-BATCH_SIZE = 500
-
 # Function to get conversation-specific collection name
 def get_conversation_collection_name(conversation_id):
     """Generate a collection name for a specific conversation"""
@@ -25,28 +21,10 @@ def get_conversation_collection_name(conversation_id):
 os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
 
 # --- LangChain Embedding Function ---
-def get_embedding_function(query=None):
-    """Get the appropriate embedding function based on the query language"""
-    # Check if query contains Chinese characters
-    if query and any(u'\u4e00' <= c <= u'\u9fff' for c in query):
-        # Use Chinese-specific embedding model if available
-        try:
-            print(f"Using Chinese-specific embedding model for query: '{query}'")
-            return OllamaEmbeddings(
-                base_url=OLLAMA_HOST,
-                model="herald/dmeta-embedding-zh"
-            )
-        except Exception as e:
-            print(f"Error using Chinese embedding model: {str(e)}. Falling back to default.")
-    
-    # Default embedding model
-    return OllamaEmbeddings(
-        base_url=OLLAMA_HOST,
-        model=DEFAULT_EMBED_MODEL
-    )
-
-# Initialize with default embedding function
-ollama_ef = get_embedding_function()
+ollama_ef = OllamaEmbeddings(
+    base_url=OLLAMA_HOST,
+    model=DEFAULT_EMBED_MODEL
+)
 
 # --- Document Loading and Processing ---
 
@@ -227,111 +205,72 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         return False
 
 def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=15):
-    """Retrieve relevant document chunks for a given query with optimized performance and multilingual support"""
+    """Retrieves relevant document chunks for a given query using LangChain Chroma.
+    
+    Args:
+        query: The query to search for
+        collection_name: Name of the collection to search in
+        conversation_id: If provided, will search in a conversation-specific collection
+        n_results: Number of results to return
+        
+    Returns:
+        str: The retrieved context as a string
+    """
     try:
-        # Use conversation-specific collection if provided
+        # If conversation_id is provided, use a conversation-specific collection
         if conversation_id:
             collection_name = get_conversation_collection_name(conversation_id)
-        
-        # Check if the collection exists
-        if not collection_exists(collection_name):
-            return ""
-        
-        # Get appropriate embedding function based on query language
-        embedding_function = get_embedding_function(query)
-        
-        # Initialize Chroma with the collection and language-specific embedding
+            
+        print(f"Loading persisted Chroma vector store from: {CHROMA_PERSIST_DIR}, collection: {collection_name}")
+        # Load the persisted vector store
         vectorstore = Chroma(
-            persist_directory=CHROMA_PERSIST_DIR,
-            embedding_function=embedding_function,
+            persist_directory=CHROMA_PERSIST_DIR, 
+            embedding_function=ollama_ef, 
             collection_name=collection_name
         )
         
-        # Log the query for debugging
-        print(f"Processing query: '{query}' in collection '{collection_name}'")
+        retriever = vectorstore.as_retriever(search_kwargs={"k": n_results})
         
-        # Check if query is in Chinese (or other non-Latin script)
-        has_chinese = any(u'\u4e00' <= c <= u'\u9fff' for c in query)
-        if has_chinese:
-            print(f"Detected Chinese query: '{query}'")
-            # For Chinese queries, we'll try both similarity search and keyword search
-            try:
-                # First try similarity search with higher k for Chinese
-                docs = vectorstore.similarity_search(
-                    query, 
-                    k=n_results*2  # Double the results for Chinese queries
-                )
-                print(f"Similarity search returned {len(docs)} results for Chinese query")
-                
-                # If we got very few results, try a more aggressive approach
-                if len(docs) < 5:
-                    # Try searching with individual characters/words
-                    import jieba  # Chinese word segmentation
-                    words = list(jieba.cut(query))
-                    print(f"Segmented query into words: {words}")
-                    
-                    # Search for each word and combine results
-                    all_docs = []
-                    for word in words:
-                        if len(word.strip()) > 0:
-                            word_docs = vectorstore.similarity_search(word, k=5)
-                            all_docs.extend(word_docs)
-                            print(f"Word '{word}' returned {len(word_docs)} results")
-                    
-                    # Remove duplicates by document ID
-                    seen_ids = set()
-                    unique_docs = []
-                    for doc in all_docs:
-                        doc_id = doc.metadata.get('doc_id', str(hash(doc.page_content)))
-                        if doc_id not in seen_ids:
-                            seen_ids.add(doc_id)
-                            unique_docs.append(doc)
-                    
-                    # If we found more docs with word-by-word search, use those
-                    if len(unique_docs) > len(docs):
-                        print(f"Using word-by-word search results: {len(unique_docs)} docs")
-                        docs = unique_docs[:n_results*2]  # Limit to twice the requested results
-            except Exception as e:
-                print(f"Error in Chinese query processing: {str(e)}")
-                # Fall back to regular similarity search
-                docs = vectorstore.similarity_search(query, k=n_results)
-        else:
-            # For non-Chinese queries, use MMR for better diversity
-            try:
-                # First try MMR retrieval for better diversity
-                docs = vectorstore.max_marginal_relevance_search(
-                    query, 
-                    k=n_results,
-                    fetch_k=n_results*2,  # Fetch more candidates for better selection
-                    lambda_mult=0.7  # Balance between relevance and diversity
-                )
-            except Exception as mmr_error:
-                # Fall back to regular similarity search if MMR fails
-                print(f"MMR search failed, falling back to similarity search: {str(mmr_error)}")
-                docs = vectorstore.similarity_search(query, k=n_results)
+        print(f"Querying vector store for: '{query[:50]}...'")
+        # Use the retriever to get relevant documents
+        results = retriever.get_relevant_documents(query)
         
-        # Format context with source grouping for better context
-        if not docs:
-            print(f"No documents found for query: '{query}'")
-            return ""
-            
+        print(f"Retrieved {len(results)} context chunks from knowledge base")
+        
+        # Detailed logging of each retrieved chunk
+        for i, doc in enumerate(results):
+            source = doc.metadata.get('source', 'unknown source')
+            page = doc.metadata.get('page', 'unknown page')
+            print(f"\nContext chunk #{i+1}:")
+            print(f"  Source: {source}")
+            print(f"  Page/Section: {page}")
+            print(f"  Similarity score: {doc.metadata.get('score', 'N/A')}")
+            print(f"  Content snippet: {doc.page_content[:100]}...")
+        
+        # Enhanced context handling with metadata
         context_parts = []
-        sources = {}
-        for doc in docs:
-            filename = doc.metadata.get('filename', 'Unknown')
-            if filename not in sources:
-                sources[filename] = []
-            sources[filename].append(doc.page_content)
+        for i, doc in enumerate(results):
+            # Extract metadata for better context
+            source = doc.metadata.get('source', 'unknown')
+            filename = doc.metadata.get('filename', os.path.basename(source) if isinstance(source, str) else 'unknown')
+            
+            # Format the context with source information
+            context_part = f"--- Document {i+1}: {filename} ---\n{doc.page_content}\n"
+            context_parts.append(context_part)
+            
+        # Join all context parts with clear separators
+        context = "\n\n".join(context_parts)
         
-        for filename, contents in sources.items():
-            source_context = f"Source: {filename}\n\n" + "\n\n".join(contents)
-            context_parts.append(source_context)
-        
-        context = "\n\n---\n\n".join(context_parts)
-        print(f"Retrieved {len(docs)} document chunks from {len(sources)} sources")
+        if context:
+            print(f"Total context length: {len(context)} characters")
+            print(f"Retrieved {len(results)} document chunks")
+        else:
+            print("No relevant context found in knowledge base")
+            
         return context
     except Exception as e:
-        print(f"Error retrieving context: {str(e)}")
+        print(f"Error retrieving context from Chroma vector store: {e}")
+        print("Please ensure the vector store has been set up correctly.")
         return ""
 
 # --- Example Usage (Optional) ---
