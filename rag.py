@@ -99,9 +99,12 @@ def load_documents(source_directory):
     print(f"Loaded {len(documents)} documents.")
     return documents
 
-def split_documents(documents):
-    """Splits documents into smaller chunks with enhanced handling for Chinese text."""
+def split_documents(documents, operation_id=None):
+    """Splits documents into smaller chunks with enhanced handling for Chinese text.
+    Uses parallel processing for large document sets."""
     print("Splitting documents...")
+    if operation_id:
+        update_progress(operation_id, description="Analyzing documents for optimal splitting")
     
     # Check if any document contains Chinese text
     has_chinese = False
@@ -126,8 +129,54 @@ def split_documents(documents):
             chunk_overlap=CHUNK_OVERLAP
         )
     
-    split_docs = text_splitter.split_documents(documents)
+    # For large document sets, use parallel processing
+    if len(documents) > 50:
+        import concurrent.futures
+        import multiprocessing
+        import math
+        
+        # Determine optimal number of workers based on CPU cores
+        num_cores = multiprocessing.cpu_count()
+        num_workers = max(2, min(num_cores - 1, 8))  # Use up to N-1 cores, max 8 workers
+        
+        print(f"Using {num_workers} parallel workers for document splitting on {num_cores} CPU cores")
+        if operation_id:
+            update_progress(operation_id, description=f"Parallel splitting with {num_workers} workers",
+                          details={"workers": num_workers, "documents": len(documents)})
+        
+        # Split documents into batches for parallel processing
+        batch_size = math.ceil(len(documents) / num_workers)
+        batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
+        
+        all_splits = []
+        with concurrent.futures.ProcessPoolExecutor(max_workers=num_workers) as executor:
+            # Process each batch in parallel
+            future_to_batch = {executor.submit(text_splitter.split_documents, batch): i 
+                              for i, batch in enumerate(batches)}
+            
+            # Collect results as they complete
+            for i, future in enumerate(concurrent.futures.as_completed(future_to_batch)):
+                batch_index = future_to_batch[future]
+                try:
+                    batch_splits = future.result()
+                    all_splits.extend(batch_splits)
+                    if operation_id:
+                        progress = (i + 1) / len(batches) * 100
+                        update_progress(operation_id, progress=progress,
+                                      description=f"Processed batch {i+1}/{len(batches)}",
+                                      details={"batch": i+1, "total_batches": len(batches),
+                                              "chunks_so_far": len(all_splits)})
+                except Exception as e:
+                    print(f"Error processing batch {batch_index}: {e}")
+        
+        split_docs = all_splits
+    else:
+        # For smaller document sets, use single-threaded processing
+        split_docs = text_splitter.split_documents(documents)
+    
     print(f"Split into {len(split_docs)} chunks.")
+    if operation_id:
+        update_progress(operation_id, description=f"Completed splitting into {len(split_docs)} chunks")
     return split_docs
 
 # --- Vector Store Management ---
@@ -204,21 +253,8 @@ def add_single_document_to_store(file_path, collection_name=DEFAULT_COLLECTION_N
             if not split_docs:
                 print(f"Could not split document: {filename}")
                 return False
-        except Exception as e:
-            print(f"Error processing document {filename}: {e}")
-            return False
-            
-        print(f"Loading existing Chroma vector store from: {CHROMA_PERSIST_DIR}")
-        # Load the existing vector store or create a new one
-        try:
-            vectorstore = Chroma(
-                persist_directory=CHROMA_PERSIST_DIR, 
-                embedding_function=ollama_ef, 
-                collection_name=collection_name
-            )
-        except Exception as e:
-            print(f"Error loading existing vector store: {e}")
-            print("Creating a new vector store")
+                
+            # Add chunks to vector store
             vectorstore = Chroma.from_documents(
                 documents=split_docs,
                 embedding=ollama_ef,
@@ -226,16 +262,12 @@ def add_single_document_to_store(file_path, collection_name=DEFAULT_COLLECTION_N
                 collection_name=collection_name
             )
             vectorstore.persist()
+            print(f"Added {len(split_docs)} chunks to vector store collection '{collection_name}'")
             return True
-
-        print(f"Adding {len(split_docs)} chunks from '{filename}' to the vector store.")
-        # Add the new document chunks to the existing store
-        vectorstore.add_documents(split_docs)
-        
-        print(f"Persisting updated vector store to: {CHROMA_PERSIST_DIR}")
-        vectorstore.persist()
-        print(f"--- Single document '{filename}' added successfully ---")
-        return True
+        except Exception as e:
+            print(f"Error processing document {filename}: {e}")
+            return False
+            
 
     except Exception as e:
         print(f"Error adding single document {file_path}: {e}")
@@ -424,57 +456,98 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             
             import concurrent.futures
             
-            # Define retrieval strategies as functions
+            # Define multiple retrieval strategies as functions
             def strategy1():
                 print("Strategy 1: Using processed query")
                 return retriever.get_relevant_documents(processed_query)
                 
-            # Execute strategies in parallel
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-                future1 = executor.submit(strategy1)
+            def strategy2():
+                if is_chinese:
+                    print("Strategy 2: Using key terms for Chinese query")
+                    # Join terms with OR for broader matching
+                    term_query = " OR ".join(multi_char_terms[:8])  # Limit to top terms
+                    return retriever.get_relevant_documents(term_query)
+                return []
                 
-                # Get results from all futures
-                results1 = future1.result()
-                all_results.extend(results1)
-                print(f"Strategy 1 results: {len(results1)}")
+            def strategy3():
+                if is_chinese and len(query) > 20:
+                    print("Strategy 3: Using query summary")
+                    # Use first 20 chars as a summary query
+                    return retriever.get_relevant_documents(query[:20])
+                return []
             
-            # For Chinese text, try additional strategies
-            if is_chinese:
-                # Strategy 2: Try without question marks and other punctuation
-                clean_query = ''.join([c for c in query if '\u4e00' <= c <= '\u9fff' or c.isalnum()])
-                if clean_query != query:
-                    print(f"Strategy 2: Using cleaned query: '{clean_query}'")
-                    results2 = retriever.get_relevant_documents(clean_query)
-                    print(f"Strategy 2 results: {len(results2)}")
-                    all_results.extend([r for r in results2 if r not in all_results])
-                
-                # Strategy 3: Try with key multi-character terms
-                if multi_char_terms:
-                    # Join the most important terms (first few multi-char terms)
-                    term_query = ' '.join(multi_char_terms[:5])  
-                    print(f"Strategy 3: Using key terms: '{term_query}'")
-                    results3 = retriever.get_relevant_documents(term_query)
-                    print(f"Strategy 3 results: {len(results3)}")
-                    all_results.extend([r for r in results3 if r not in all_results])
-                
-                # Strategy 4: Direct similarity search as last resort
-                if len(all_results) < 5:  # If we still don't have enough results
-                    print("Strategy 4: Using direct similarity search")
-                    results4 = vectorstore.similarity_search(query, k=n_results)
-                    print(f"Strategy 4 results: {len(results4)}")
-                    all_results.extend([r for r in results4 if r not in all_results])
+            import multiprocessing
+            num_cores = multiprocessing.cpu_count()
+            max_workers = min(num_cores, 4)  # Use up to 4 cores for retrieval
             
-            # Deduplicate and limit results
-            seen = set()
-            results = []
+            print(f"Using {max_workers} parallel workers for retrieval strategies")
+            update_progress(operation_id, current_step=9.5, 
+                           description=f"Running {max_workers} parallel retrieval strategies",
+                           details={"workers": max_workers, "cpu_cores": num_cores})
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all strategies
+                futures = []
+                futures.append(executor.submit(strategy1))
+                if is_chinese:
+                    futures.append(executor.submit(strategy2))
+                    if len(query) > 20:
+                        futures.append(executor.submit(strategy3))
+                
+                # Process results as they complete
+                for i, future in enumerate(concurrent.futures.as_completed(futures)):
+                    try:
+                        results = future.result()
+                        all_results.extend(results)
+                        print(f"Strategy {i+1} results: {len(results)}")
+                        update_progress(operation_id, 
+                                      description=f"Retrieved {len(results)} documents from strategy {i+1}",
+                                      details={"strategy": i+1, "results": len(results)})
+                    except Exception as e:
+                        print(f"Error in retrieval strategy {i+1}: {e}")
+            
+            # Add a final strategy for direct similarity search if needed
+            if len(all_results) < 5:  # If we still don't have enough results
+                def strategy_direct():
+                    print("Strategy Direct: Using direct similarity search")
+                    return vectorstore.similarity_search(query, k=n_results)
+                
+                try:
+                    results_direct = strategy_direct()
+                    all_results.extend(results_direct)
+                    print(f"Direct similarity search results: {len(results_direct)}")
+                except Exception as e:
+                    print(f"Error in direct similarity search: {e}")
+            
+            # Deduplicate and limit results using memory-optimized approach
+            # Use a more sophisticated deduplication strategy that leverages EC2 memory
+            update_progress(operation_id, current_step=9.8, 
+                           description="Optimizing and deduplicating results",
+                           details={"total_candidates": len(all_results)})
+            
+            # Use a dictionary for faster lookups
+            unique_docs = {}
             for doc in all_results:
-                # Use content hash as a simple deduplication key
-                content_hash = hash(doc.page_content[:100])  # Use first 100 chars as hash key
-                if content_hash not in seen:
-                    seen.add(content_hash)
-                    results.append(doc)
-                if len(results) >= n_results:
-                    break
+                # Create a more robust hash key using both content and metadata
+                content_sample = doc.page_content[:150] if len(doc.page_content) > 150 else doc.page_content
+                source = doc.metadata.get('source', '')
+                # Combine content and source for a more precise deduplication key
+                dedup_key = f"{source}:{content_sample}"
+                
+                # If we haven't seen this document before, or if it's a better match
+                if dedup_key not in unique_docs:
+                    unique_docs[dedup_key] = doc
+            
+            # Convert back to list and limit results
+            results = list(unique_docs.values())
+            
+            # Sort by relevance if we have metadata with scores
+            if results and hasattr(results[0], 'metadata') and 'score' in results[0].metadata:
+                results.sort(key=lambda x: x.metadata.get('score', 0), reverse=True)
+                
+            # Limit to requested number
+            if len(results) > n_results:
+                results = results[:n_results]
                     
             print(f"Final results after deduplication: {len(results)}")
             
