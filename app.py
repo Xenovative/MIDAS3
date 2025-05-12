@@ -46,7 +46,7 @@ if not hasattr(app, 'indexing_progress'):
 # Add a route to get indexing progress
 @app.route('/api/bots/<bot_id>/indexing/progress', methods=['GET'])
 @login_required
-def get_indexing_progress(bot_id):
+def get_bot_indexing_progress(bot_id):
     """Get the current progress of indexing for a bot"""
     try:
         if bot_id in app.indexing_progress:
