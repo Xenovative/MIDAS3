@@ -31,9 +31,20 @@ os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
 # Use a model that better handles Chinese text
 DEFAULT_EMBED_MODEL = "herald/dmeta-embedding-zh" if "herald/dmeta-embedding-zh" in os.environ.get('AVAILABLE_EMBEDDING_MODELS', DEFAULT_EMBED_MODEL) else DEFAULT_EMBED_MODEL
 
-ollama_ef = OllamaEmbeddings(
+# Set up local file store for caching embeddings
+store = LocalFileStore("./cache/embeddings")
+
+# Create base embeddings model
+base_embeddings = OllamaEmbeddings(
     base_url=OLLAMA_HOST,
     model=DEFAULT_EMBED_MODEL
+)
+
+# Create cached embeddings to improve performance
+ollama_ef = CacheBackedEmbeddings.from_bytes_store(
+    underlying_embeddings=base_embeddings,
+    document_embedding_cache=store,
+    namespace=base_embeddings.model
 )
 
 # --- Document Loading and Processing ---
@@ -351,15 +362,36 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         update_progress(operation_id, current_step=7, 
                        description="Retriever configured, preparing to execute query")
         
-        # For Chinese queries, expand the query with variations to improve matching
+        # Preprocess query to improve retrieval effectiveness
+        # 1. Detect language
         is_chinese = any('\u4e00' <= char <= '\u9fff' for char in query)
+        
+        # 2. Remove stopwords and normalize
+        import re
+        from string import punctuation
+        
+        # Simple preprocessing function
+        def preprocess_query(text, is_chinese=False):
+            # For non-Chinese text
+            if not is_chinese:
+                # Convert to lowercase
+                text = text.lower()
+                # Remove punctuation
+                text = re.sub(f'[{re.escape(punctuation)}]', ' ', text)
+                # Remove extra whitespace
+                text = re.sub(r'\s+', ' ', text).strip()
+            return text
+        
+        # Apply preprocessing
+        processed_query = preprocess_query(query, is_chinese)
         
         print(f"Querying vector store for: '{query[:50]}...'")
         print(f"Query language detected: {'Chinese' if is_chinese else 'Other'}")
+        print(f"Processed query: '{processed_query[:50]}...'")
         
         update_progress(operation_id, current_step=8, 
                        description=f"Executing query: '{query[:30]}...'" + (" (Chinese text detected)" if is_chinese else ""),
-                       details={"is_chinese": is_chinese, "query_sample": query[:50]})
+                       details={"is_chinese": is_chinese, "query_sample": query[:50], "processed_query": processed_query[:50]})
         print(f"Collection: {collection_name}, Documents: {vectorstore._collection.count()}")
         
         # Extract key terms for Chinese queries
@@ -382,16 +414,27 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             
             print(f"Generated {len(multi_char_terms)} multi-character terms: {', '.join(multi_char_terms)}")
             
-        # Use the retriever to get relevant documents with multiple strategies
+        # Use the retriever to get relevant documents with multiple strategies in parallel
         all_results = []
         try:
             update_progress(operation_id, current_step=9, 
                            description="Starting document retrieval with multiple strategies")
-            # Strategy 1: Try original query first
-            print("Strategy 1: Using original query")
-            results1 = retriever.get_relevant_documents(query)
-            print(f"Strategy 1 results: {len(results1)}")
-            all_results.extend(results1)
+            
+            import concurrent.futures
+            
+            # Define retrieval strategies as functions
+            def strategy1():
+                print("Strategy 1: Using processed query")
+                return retriever.get_relevant_documents(processed_query)
+                
+            # Execute strategies in parallel
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                future1 = executor.submit(strategy1)
+                
+                # Get results from all futures
+                results1 = future1.result()
+                all_results.extend(results1)
+                print(f"Strategy 1 results: {len(results1)}")
             
             # For Chinese text, try additional strategies
             if is_chinese:
