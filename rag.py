@@ -9,8 +9,8 @@ from config import OLLAMA_HOST
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
 CHROMA_PERSIST_DIR = os.path.join(os.path.dirname(__file__), "db", "chroma_db")
 DEFAULT_COLLECTION_NAME = "rag_documents"
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
+CHUNK_SIZE = 2000  # Increased from 1000 for more context per chunk
+CHUNK_OVERLAP = 400  # Increased overlap to maintain context between chunks
 
 # Function to get conversation-specific collection name
 def get_conversation_collection_name(conversation_id):
@@ -204,7 +204,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=3):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=15):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
@@ -247,11 +247,23 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             print(f"  Similarity score: {doc.metadata.get('score', 'N/A')}")
             print(f"  Content snippet: {doc.page_content[:100]}...")
         
-        context_list = [doc.page_content for doc in results]
-        context = "\n\n".join(context_list)
+        # Enhanced context handling with metadata
+        context_parts = []
+        for i, doc in enumerate(results):
+            # Extract metadata for better context
+            source = doc.metadata.get('source', 'unknown')
+            filename = doc.metadata.get('filename', os.path.basename(source) if isinstance(source, str) else 'unknown')
+            
+            # Format the context with source information
+            context_part = f"--- Document {i+1}: {filename} ---\n{doc.page_content}\n"
+            context_parts.append(context_part)
+            
+        # Join all context parts with clear separators
+        context = "\n\n".join(context_parts)
         
         if context:
             print(f"Total context length: {len(context)} characters")
+            print(f"Retrieved {len(results)} document chunks")
         else:
             print("No relevant context found in knowledge base")
             

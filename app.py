@@ -86,7 +86,7 @@ def load_user(user_id):
     return None
     
 # --- Helper Functions ---
-def call_llm(model, messages, max_tokens=500, temperature=0.7, top_p=0.95, timeout=10):
+def call_llm(model, messages, max_tokens=8192, temperature=0.7, top_p=0.95, timeout=30):
     """Call an LLM model with the given messages and parameters"""
     try:
         app.logger.info(f"Calling LLM model {model} with {len(messages)} messages (timeout: {timeout}s)")
