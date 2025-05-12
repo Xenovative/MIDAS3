@@ -21,6 +21,9 @@ def get_conversation_collection_name(conversation_id):
 os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
 
 # --- LangChain Embedding Function ---
+# Use a model that better handles Chinese text
+DEFAULT_EMBED_MODEL = "herald/dmeta-embedding-zh" if "herald/dmeta-embedding-zh" in os.environ.get('AVAILABLE_EMBEDDING_MODELS', DEFAULT_EMBED_MODEL) else DEFAULT_EMBED_MODEL
+
 ollama_ef = OllamaEmbeddings(
     base_url=OLLAMA_HOST,
     model=DEFAULT_EMBED_MODEL
@@ -229,20 +232,52 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             collection_name=collection_name
         )
         
-        # Use similarity search with score threshold and fetch more results
-        # This ensures we only get relevant results while maximizing knowledge use
+        # For Chinese text, we need to be more lenient with similarity scores
+        # Use MMR retriever to maximize relevance and diversity
         retriever = vectorstore.as_retriever(
-            search_type="similarity_score_threshold",
+            search_type="mmr",  # Maximum Marginal Relevance - balances relevance with diversity
             search_kwargs={
                 "k": n_results,
-                "score_threshold": 0.5,  # Only include results with at least 0.5 similarity
-                "fetch_k": 100  # Fetch more candidates to filter from
+                "fetch_k": 150,  # Fetch more candidates to filter from
+                "lambda_mult": 0.8  # Higher values prioritize relevance over diversity
             }
         )
         
+        # For Chinese queries, expand the query with variations to improve matching
+        is_chinese = any('\u4e00' <= char <= '\u9fff' for char in query)
+        
         print(f"Querying vector store for: '{query[:50]}...'")
+        print(f"Query language detected: {'Chinese' if is_chinese else 'Other'}")
+        
         # Use the retriever to get relevant documents
-        results = retriever.get_relevant_documents(query)
+        try:
+            # For Chinese text, try to get more results
+            if is_chinese:
+                print("Using expanded retrieval for Chinese query")
+                # Try different variations of the query
+                results = retriever.get_relevant_documents(query)
+                
+                # If no results, try without question marks which can affect matching
+                if not results:
+                    clean_query = query.replace('?', '').replace('？', '')
+                    print(f"Retrying with cleaned query: '{clean_query}'")
+                    results = retriever.get_relevant_documents(clean_query)
+                    
+                # If still no results, try a more aggressive approach
+                if not results:
+                    # Try with just the key terms from the query
+                    # This is a simple approach - in production you might use a proper Chinese NLP library
+                    words = [w for w in query if '\u4e00' <= w <= '\u9fff']
+                    if len(words) > 3:  # If we have enough characters
+                        simplified_query = ''.join(words)
+                        print(f"Retrying with simplified query: '{simplified_query}'")
+                        results = retriever.get_relevant_documents(simplified_query)
+            else:
+                results = retriever.get_relevant_documents(query)
+        except Exception as e:
+            print(f"Error during retrieval: {e}")
+            # Fallback to basic retrieval
+            results = vectorstore.similarity_search(query, k=n_results)
         
         print(f"Retrieved {len(results)} context chunks from knowledge base")
         
