@@ -673,6 +673,16 @@ def generate():
         retrieved_context = ""
         bot_id = data.get('bot_id')
         
+        # If a bot is selected in the request, update the conversation model
+        if bot_id and not secret and conversation_id:
+            try:
+                # Format as bot:id to indicate this is a bot conversation
+                bot_model = f"bot:{bot_id}"
+                db.update_conversation_model(conversation_id, bot_model)
+                app.logger.info(f"[BOT] Updated conversation {conversation_id} model to {bot_model}")
+            except Exception as model_err:
+                app.logger.error(f"[BOT] Error updating conversation model: {str(model_err)}")
+        
         # Only enable RAG if explicitly requested or documents exist in conversation
         rag_enabled = data.get('use_rag', False)  # Default to False to prevent unwanted RAG
         
@@ -744,6 +754,17 @@ def generate():
                     bot = Bot.get(bot_id)
                     if bot and bot.knowledge_files:
                         app.logger.info(f"[RAG] Checking bot {bot_id} knowledge base with {len(bot.knowledge_files)} files")
+                        
+                        # Update the conversation model to show the bot name instead of base model
+                        if not secret and conversation_id:
+                            try:
+                                # Format as bot:id to indicate this is a bot conversation
+                                bot_model = f"bot:{bot.id}"
+                                db.update_conversation_model(conversation_id, bot_model)
+                                app.logger.info(f"[RAG] Updated conversation {conversation_id} model to {bot_model}")
+                            except Exception as model_err:
+                                app.logger.error(f"[RAG] Error updating conversation model: {str(model_err)}")
+                                # Non-critical error, continue processing
                         
                         # Debug collection name
                         app.logger.info(f"[RAG] Checking bot collection: {bot_collection}")
