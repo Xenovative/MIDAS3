@@ -204,7 +204,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=15):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=30):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
@@ -229,7 +229,16 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             collection_name=collection_name
         )
         
-        retriever = vectorstore.as_retriever(search_kwargs={"k": n_results})
+        # Use similarity search with score threshold and fetch more results
+        # This ensures we only get relevant results while maximizing knowledge use
+        retriever = vectorstore.as_retriever(
+            search_type="similarity_score_threshold",
+            search_kwargs={
+                "k": n_results,
+                "score_threshold": 0.5,  # Only include results with at least 0.5 similarity
+                "fetch_k": 100  # Fetch more candidates to filter from
+            }
+        )
         
         print(f"Querying vector store for: '{query[:50]}...'")
         # Use the retriever to get relevant documents

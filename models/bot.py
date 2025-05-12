@@ -26,7 +26,7 @@ class Bot:
         self.parameters = parameters or {
             "temperature": 0.7,
             "top_p": 0.9,
-            "max_tokens": 2048
+            "max_tokens": 8192  # Increased from 2048 to 8192 for more comprehensive responses
         }
         self.created_at = created_at or datetime.now().isoformat()
         self.updated_at = updated_at or datetime.now().isoformat()
