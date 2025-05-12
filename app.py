@@ -2391,19 +2391,27 @@ def generate_image():
     max_attempts = 300  # Maximum wait time = max_attempts * sleep_time (5 minutes)
     sleep_time = 1  # seconds
 
-    # Wait at least 120 seconds before first check to give time for image generation
-    print(f"Waiting 120 seconds for image generation to complete for prompt_id {result.get('prompt_id')}")
-    time.sleep(270)
+    # Wait 60 seconds before first check to give time for image generation
+    print(f"Waiting 60 seconds for image generation to complete for prompt_id {result.get('prompt_id')}")
+    time.sleep(60)
     
     # First check after initial wait
     print(f"Checking history for prompt_id {result.get('prompt_id')} (first check)")
     history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
     print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
     
-    # If not ready, wait another 150 seconds
-    if history_resp.status_code != 200 or not history_resp.json().get(result.get('prompt_id'), {}).get('outputs'):
-        print(f"Image not ready yet. Waiting additional 150 seconds for prompt_id {result.get('prompt_id')}")
-        time.sleep(150)
+    # If not ready, wait in shorter intervals with more checks
+    attempts = 0
+    max_additional_attempts = 10
+    while (history_resp.status_code != 200 or not history_resp.json().get(result.get('prompt_id'), {}).get('outputs')) and attempts < max_additional_attempts:
+        attempts += 1
+        print(f"Image not ready yet. Waiting additional 30 seconds for prompt_id {result.get('prompt_id')} (attempt {attempts}/{max_additional_attempts})")
+        time.sleep(30)
+        
+        # Check again
+        print(f"Checking history again for prompt_id {result.get('prompt_id')} (check #{attempts+1})")
+        history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
+        print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
         
         # Second check after additional wait
         print(f"Checking history again for prompt_id {result.get('prompt_id')} (second check)")
@@ -2428,60 +2436,60 @@ def generate_image():
                     image_data = node_output['images'][0]
                     break
 
-                if image_filename:
-                    # Construct path to the image in ComfyUI's output directory
-                    image_path = os.path.join(comfy_output_dir, image_filename)
-                    print(f"Looking for image at: {image_path}")  # Debug output
-                    # Make sure the file exists
-                    if os.path.exists(image_path):
-                        print(f"Found image at: {image_path}")  # Debug output
-                        # Read and encode the image
-                        with open(image_path, 'rb') as img_file:
-                            img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
+            if image_filename:
+                # Construct path to the image in ComfyUI's output directory
+                image_path = os.path.join(comfy_output_dir, image_filename)
+                print(f"Looking for image at: {image_path}")  # Debug output
+                # Make sure the file exists
+                if os.path.exists(image_path):
+                    print(f"Found image at: {image_path}")  # Debug output
+                    # Read and encode the image
+                    with open(image_path, 'rb') as img_file:
+                        img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
 
-                            # Save message to conversation history if conversation_id is provided
-                            if conversation_id:
-                                try:
-                                    # Use the db.add_message function to properly save the message
-                                    # This ensures proper persistence and updates conversation timestamps
-                                    message_id = db.add_message(
-                                        conversation_id=conversation_id,
-                                        role='assistant',
-                                        content=f'',
-                                        thinking=None,
-                                        images=[img_b64],  
-                                        attachment_filename=image_filename
-                                    )
+                        # Save message to conversation history if conversation_id is provided
+                        if conversation_id:
+                            try:
+                                # Use the db.add_message function to properly save the message
+                                # This ensures proper persistence and updates conversation timestamps
+                                message_id = db.add_message(
+                                    conversation_id=conversation_id,
+                                    role='assistant',
+                                    content=f'',
+                                    thinking=None,
+                                    images=[img_b64],  
+                                    attachment_filename=image_filename
+                                )
 
-                                    if not message_id:
-                                        print("Failed to save image message to database")
-                                        # Log the error but don't fail the request
-                                        import traceback
-                                        traceback.print_exc()
-                                except Exception as db_error:
-                                    print(f"Error saving image message to database: {db_error}")
-                                    # Log the full error details for debugging
+                                if not message_id:
+                                    print("Failed to save image message to database")
+                                    # Log the error but don't fail the request
                                     import traceback
                                     traceback.print_exc()
-                                    # Return a more informative error response
-                                    return jsonify({
-                                        'status': 'error',
-                                        'message': f'Failed to save image message: {str(db_error)}'
-                                    }), 500
+                            except Exception as db_error:
+                                print(f"Error saving image message to database: {db_error}")
+                                # Log the full error details for debugging
+                                import traceback
+                                traceback.print_exc()
+                                # Return a more informative error response
+                                return jsonify({
+                                    'status': 'error',
+                                    'message': f'Failed to save image message: {str(db_error)}'
+                                }), 500
 
-                            return jsonify({
-                                'status': 'success', 
-                                'image_base64': img_b64, 
-                                'filename': image_filename,
-                                'workflow': workflow,
-                                'seed': seed  # Include the seed in the response
-                            })
+                        return jsonify({
+                            'status': 'success', 
+                            'image_base64': img_b64, 
+                            'filename': image_filename,
+                            'workflow': workflow,
+                            'seed': seed  # Include the seed in the response
+                        })
 
-                # If we couldn't find the image or it wasn't saved yet
-                return jsonify({
-                    'status': 'error',
-                    'message': 'Image generation completed but image file not found'
-                }), 404
+            # If we couldn't find the image or it wasn't saved yet
+            return jsonify({
+                'status': 'error',
+                'message': 'Image generation completed but image file not found'
+            }), 404
 
     # If we've exhausted all attempts and still haven't found the image
     return jsonify({
