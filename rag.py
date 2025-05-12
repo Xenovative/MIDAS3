@@ -1,9 +1,12 @@
 import os
 from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, UnstructuredMarkdownLoader, UnstructuredXMLLoader
+from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, UnstructuredMarkdownLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
 from config import OLLAMA_HOST
+
+# Import custom loaders
+from custom_loaders import ChineseTheologyXMLLoader, ChineseTheologyXMLDirectoryLoader
 
 # --- Configuration ---
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
@@ -45,33 +48,35 @@ def load_documents(source_directory):
     loader_md = DirectoryLoader(source_directory, glob="**/*.md", loader_cls=UnstructuredMarkdownLoader, recursive=True, show_progress=True)
     documents.extend(loader_md.load())
     
-    # Enhanced XML loader with better Chinese text handling
+    # Use custom XML loader for Chinese theology documents
     try:
-        print("Loading XML files with enhanced Chinese text handling")
-        loader_xml = DirectoryLoader(
-            source_directory, 
-            glob="**/*.xml", 
-            loader_cls=UnstructuredXMLLoader, 
-            loader_kwargs={
-                "mode": "elements",  # Extract elements for better structure preservation
-                "strategy": "fast",   # Fast parsing strategy
-            },
-            recursive=True, 
-            show_progress=True
+        print("Loading XML files with custom Chinese theology loader")
+        # Use our custom directory loader that understands the XML structure
+        xml_loader = ChineseTheologyXMLDirectoryLoader(
+            source_directory,
+            glob_pattern="**/*.xml",
+            recursive=True
         )
-        xml_docs = loader_xml.load()
-        print(f"Loaded {len(xml_docs)} XML documents")
+        xml_docs = xml_loader.load()
+        print(f"Loaded {len(xml_docs)} structured documents from XML files")
         documents.extend(xml_docs)
     except Exception as e:
-        print(f"Error loading XML files: {e}")
-        # Fallback to basic XML loader
+        print(f"Error loading XML files with custom loader: {e}")
+        # Fallback to trying individual files
         try:
-            loader_xml = DirectoryLoader(source_directory, glob="**/*.xml", loader_cls=UnstructuredXMLLoader, recursive=True, show_progress=True)
-            xml_docs = loader_xml.load()
-            print(f"Loaded {len(xml_docs)} XML documents with fallback loader")
-            documents.extend(xml_docs)
+            print("Falling back to individual file processing")
+            import glob
+            xml_files = glob.glob(os.path.join(source_directory, "**/*.xml"), recursive=True)
+            for xml_file in xml_files:
+                try:
+                    loader = ChineseTheologyXMLLoader(xml_file)
+                    file_docs = loader.load()
+                    print(f"Loaded {len(file_docs)} documents from {os.path.basename(xml_file)}")
+                    documents.extend(file_docs)
+                except Exception as file_error:
+                    print(f"Error processing {xml_file}: {file_error}")
         except Exception as e2:
-            print(f"Error with fallback XML loader: {e2}")
+            print(f"Error with fallback XML processing: {e2}")
             # Continue without XML files if both methods fail
 
     print(f"Loaded {len(documents)} documents.")
@@ -156,29 +161,34 @@ def add_single_document_to_store(file_path, collection_name=DEFAULT_COLLECTION_N
         _, file_extension = os.path.splitext(filename)
         file_extension = file_extension.lower()
 
-        # Load the single document based on its extension
-        loader = None
-        if file_extension == '.txt':
-            loader = TextLoader(file_path)
-        elif file_extension == '.pdf':
-            loader = PyPDFLoader(file_path)
-        elif file_extension == '.md':
-            loader = UnstructuredMarkdownLoader(file_path)
-        elif file_extension == '.xml':
-            loader = UnstructuredXMLLoader(file_path)
-        else:
-            print(f"Unsupported file type: {file_extension}. Skipping.")
-            return False
+        # Load the document based on file extension
+        try:
+            if file_extension == '.txt':
+                loader = TextLoader(file_path)
+            elif file_extension == '.pdf':
+                loader = PyPDFLoader(file_path)
+            elif file_extension == '.md':
+                loader = UnstructuredMarkdownLoader(file_path)
+            elif file_extension == '.xml':
+                # Use our custom XML loader for better handling of Chinese theology documents
+                loader = ChineseTheologyXMLLoader(file_path)
+                print(f"Using custom XML loader for {filename}")
+            else:
+                print(f"Unsupported file type: {file_extension}. Skipping.")
+                return False
 
-        documents = loader.load()
-        if not documents:
-            print(f"Could not load document: {filename}")
-            return False
-
-        # Split the document
-        split_docs = split_documents(documents) # Use existing split function
-        if not split_docs:
-            print(f"Could not split document: {filename}")
+            documents = loader.load()
+            if not documents:
+                print(f"Could not load document: {filename}")
+                return False
+                
+            # Split the document
+            split_docs = split_documents(documents) # Use existing split function
+            if not split_docs:
+                print(f"Could not split document: {filename}")
+                return False
+        except Exception as e:
+            print(f"Error processing document {filename}: {e}")
             return False
             
         print(f"Loading existing Chroma vector store from: {CHROMA_PERSIST_DIR}")
@@ -436,10 +446,26 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # Sort by score (highest first)
         scored_results.sort(key=lambda x: x[2], reverse=True)
         
-        # Format the context, now ordered by relevance
+        # Format the context, now ordered by relevance and with rich metadata
         for i, (doc, source, score) in enumerate(scored_results):
-            # Format each chunk with source and content
-            formatted_context += f"\n\n--- Context Chunk {i+1} (Source: {source}, Relevance: {score:.2f}) ---\n{doc.page_content}\n"
+            # Extract rich metadata if available
+            title = doc.metadata.get('title', 'Unknown Title')
+            author = doc.metadata.get('author', 'Unknown Author')
+            periodical = doc.metadata.get('periodical', '')
+            doc_type = doc.metadata.get('type', 'content')
+            
+            # Build a header with the metadata
+            header = f"--- Context Chunk {i+1} (Relevance: {score:.2f}) ---\n"
+            if title != 'Unknown Title':
+                header += f"Title: {title}\n"
+            if author != 'Unknown Author':
+                header += f"Author: {author}\n"
+            if periodical:
+                header += f"Publication: {periodical}\n"
+            header += f"Source: {source}\n"
+            
+            # Format each chunk with rich metadata and content
+            formatted_context += f"\n\n{header}\n{doc.page_content}\n"
         
         # Add a summary of what was retrieved
         if results:
