@@ -318,15 +318,15 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # For all collections, try to retrieve a substantial portion of documents
         if total_docs < 5000:
             # For small collections, retrieve almost everything
-            fetch_k = min(total_docs, 4000)  # Retrieve up to 4000 docs for small collections
+            fetch_k = min(total_docs, 500)  # Retrieve up to 500 docs for small collections
             k_value = min(total_docs, n_results)
         elif total_docs < 20000:
             # For medium collections, retrieve a large portion
-            fetch_k = min(int(total_docs * 0.7), 5000)  # Up to 70% of docs, max 5000
+            fetch_k = min(int(total_docs * 0.3), 500)  # Up to 30% of docs, max 500
             k_value = min(int(total_docs * 0.3), n_results)  # Up to 30% of docs, max n_results
         else:
             # For very large collections, still retrieve a significant amount
-            fetch_k = 5000  # Fixed large value
+            fetch_k = 500  # Fixed large value
             k_value = n_results
         
         print(f"Retrieval strategy: fetch_k={fetch_k}, k={k_value}")
