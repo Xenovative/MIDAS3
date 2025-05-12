@@ -2901,7 +2901,6 @@ def reindex_bot_knowledge(bot):
 
 @app.route('/api/bots/<bot_id>/knowledge/reindex', methods=['POST'])
 @login_required
-@admin_required
 def reindex_bot_knowledge_files(bot_id):
     """Re-index all knowledge files for a bot"""
     try:
