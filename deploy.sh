@@ -93,6 +93,12 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # Increase timeouts for long-running RAG operations
+        proxy_connect_timeout 3600s;
+        proxy_send_timeout 3600s;
+        proxy_read_timeout 3600s;
+        send_timeout 3600s;
     }
 
     location /static/ {
@@ -139,7 +145,7 @@ After=network.target
 User=$USER
 WorkingDirectory=$PWD
 Environment="PATH=$PWD/venv/bin:\$PATH"
-ExecStart=$PWD/venv/bin/gunicorn --bind 0.0.0.0:5000 --timeout 1800 --workers 3 app:app
+ExecStart=$PWD/venv/bin/gunicorn --bind 0.0.0.0:5000 --timeout 3600 --workers 3 app:app
 Restart=always
 
 [Install]

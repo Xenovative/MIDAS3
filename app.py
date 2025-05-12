@@ -702,17 +702,36 @@ def generate():
             # Log RAG query details before retrieval
             app.logger.info(f"[RAG] Querying conversation knowledge with: '{user_message[:100]}...'")
             
-            # Retrieve context based on the user message from this conversation's collection
+            # Retrieve context from conversation documents with timeout handling
             retrieval_start = time.time()
-            retrieved_context = rag.retrieve_context(user_message, conversation_id=conversation_id)
-            retrieval_time = time.time() - retrieval_start
-            
-            # Log RAG results
-            if retrieved_context:
-                app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from conversation knowledge in {retrieval_time:.2f}s")
-                app.logger.info(f"[RAG] Conversation knowledge sample: '{retrieved_context[:200]}...'")
-            else:
-                app.logger.info(f"[RAG] No relevant context found in conversation documents")
+            try:
+                # Set a timeout for retrieval (120 seconds)
+                import threading
+                import concurrent.futures
+                
+                # Use ThreadPoolExecutor to run with timeout
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(rag.retrieve_context, query=user_message, conversation_id=conversation_id)
+                    try:
+                        retrieved_context = future.result(timeout=120)  # 2 minute timeout
+                        retrieval_time = time.time() - retrieval_start
+                        
+                        # Log RAG results
+                        if retrieved_context:
+                            app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from conversation knowledge in {retrieval_time:.2f}s")
+                            app.logger.info(f"[RAG] Conversation knowledge sample: '{retrieved_context[:200]}...'")
+                        else:
+                            app.logger.info(f"[RAG] No relevant context found in conversation documents")
+                    except concurrent.futures.TimeoutError:
+                        # Handle timeout - continue without RAG context
+                        app.logger.warning(f"[RAG] Retrieval timed out after 120 seconds, continuing without context")
+                        retrieved_context = ""  # Empty context if timeout
+                        # Cancel the future if possible
+                        future.cancel()
+            except Exception as e:
+                # Handle any other exceptions during retrieval
+                app.logger.error(f"[RAG] Error during retrieval: {str(e)}")
+                retrieved_context = ""  # Empty context on error
         
         # If no conversation documents or no results, check bot's knowledge base
         if not secret and not retrieved_context:
@@ -848,27 +867,6 @@ def generate():
                             
                             if count > 0:
                                 app.logger.info(f"[RAG] Documents found for bot {bot_id}, using bot RAG")
-                                use_rag = True
-                                
-                                # Log RAG query details
-                                app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
-                                
-                                # Retrieve context from bot's knowledge base
-                                retrieval_start = time.time()
-                                bot_context = rag.retrieve_context(user_message, collection_name=bot_collection)
-                                retrieval_time = time.time() - retrieval_start
-                                
-                                if bot_context:
-                                    retrieved_context = bot_context
-                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
-                                    app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
-                                else:
-                                    app.logger.info(f"[RAG] No relevant context found in bot's knowledge base despite {count} documents")
-                            else:
-                                app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but no indexed documents in collection {bot_collection}")
-                                
-                                # Log suggestion to use re-index endpoint instead of doing it during chat
-                                app.logger.info(f"[RAG] Bot {bot_id} has knowledge files but no indexed documents.")
                                 app.logger.info(f"[RAG] Recommend using /api/bots/{bot_id}/knowledge/reindex endpoint to index files")
                         except Exception as e:
                             app.logger.error(f"[RAG] Error checking bot collection: {str(e)}")
@@ -882,15 +880,33 @@ def generate():
                                 # Log RAG query details
                                 app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
                                 
-                                # Retrieve context from bot's knowledge base
+                                # Retrieve context from bot's knowledge base with timeout handling
                                 retrieval_start = time.time()
-                                bot_context = rag.retrieve_context(user_message, collection_name=bot_collection)
-                                retrieval_time = time.time() - retrieval_start
-                                
-                                if bot_context:
-                                    retrieved_context = bot_context
-                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
-                                    app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
+                                try:
+                                    # Set a timeout for retrieval (180 seconds - longer for bot knowledge)
+                                    import concurrent.futures
+                                    
+                                    # Use ThreadPoolExecutor to run with timeout
+                                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                                        future = executor.submit(rag.retrieve_context, user_message, collection_name=bot_collection)
+                                        try:
+                                            bot_context = future.result(timeout=180)  # 3 minute timeout
+                                            retrieval_time = time.time() - retrieval_start
+                                            
+                                            if bot_context:
+                                                retrieved_context = bot_context
+                                                app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from bot knowledge in {retrieval_time:.2f}s")
+                                                app.logger.info(f"[RAG] Bot knowledge sample: '{retrieved_context[:200]}...'")
+                                            else:
+                                                app.logger.info(f"[RAG] No relevant context found in bot's knowledge base")
+                                        except concurrent.futures.TimeoutError:
+                                            # Handle timeout - continue without RAG context
+                                            app.logger.warning(f"[RAG] Bot knowledge retrieval timed out after 180 seconds, continuing without context")
+                                            # Cancel the future if possible
+                                            future.cancel()
+                                except Exception as e:
+                                    # Handle any other exceptions during retrieval
+                                    app.logger.error(f"[RAG] Error during bot knowledge retrieval: {str(e)}")
                                 else:
                                     app.logger.info(f"[RAG] No relevant context found in bot's knowledge base")
                             else:
