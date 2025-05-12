@@ -696,7 +696,10 @@ def generate():
             try:
                 conversation = db.get_conversation(conversation_id)
                 if conversation and 'model' in conversation and conversation['model'].startswith('bot:'):
-                    app.logger.info(f"[RAG] Conversation {conversation_id} is associated with a bot (model: {conversation['model']}), enabling RAG")
+                    # Extract bot ID from model string
+                    extracted_bot_id = conversation['model'].split(':', 1)[1]
+                    bot_id = extracted_bot_id  # Set the bot_id for later use
+                    app.logger.info(f"[RAG] Conversation {conversation_id} is associated with bot {bot_id}, enabling RAG")
                     rag_enabled = True
             except Exception as e:
                 app.logger.error(f"[RAG] Error checking conversation model: {str(e)}")
@@ -1012,8 +1015,45 @@ def generate():
                             except Exception as ce:
                                 app.logger.error(f"[RAG] Error checking potential bot collection '{coll_name}': {str(ce)}")
                 
-                # If still no context, check all other collections
-                if not retrieved_context:
+                # If still no context, check if we should try the bot collection directly
+                # This happens when the conversation is associated with a bot but the bot_id wasn't explicitly passed
+                if not retrieved_context and conversation_id and not bot_id:
+                    try:
+                        conversation = db.get_conversation(conversation_id)
+                        if conversation and 'model' in conversation and conversation['model'].startswith('bot:'):
+                            extracted_bot_id = conversation['model'].split(':', 1)[1]
+                            bot_collection = f"bot_{extracted_bot_id}"
+                            
+                            if bot_collection in collection_names:
+                                app.logger.info(f"[RAG] Found bot collection {bot_collection} from conversation model")
+                                try:
+                                    # Try to get document count
+                                    vectorstore = rag.Chroma(
+                                        persist_directory=rag.CHROMA_PERSIST_DIR, 
+                                        embedding_function=rag.ollama_ef, 
+                                        collection_name=bot_collection
+                                    )
+                                    count = vectorstore._collection.count()
+                                    app.logger.info(f"[RAG] Bot collection '{bot_collection}' has {count} documents")
+                                    
+                                    # If this collection has documents, try using it
+                                    if count > 0:
+                                        app.logger.info(f"[RAG] Trying bot collection '{bot_collection}' with {count} documents")
+                                        retrieval_start = time.time()
+                                        bot_context = rag.retrieve_context(user_message, collection_name=bot_collection)
+                                        retrieval_time = time.time() - retrieval_start
+                                        
+                                        if bot_context:
+                                            retrieved_context = bot_context
+                                            app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from collection '{bot_collection}' in {retrieval_time:.2f}s")
+                                except Exception as e:
+                                    app.logger.error(f"[RAG] Error using bot collection '{bot_collection}': {str(e)}")
+                    except Exception as e:
+                        app.logger.error(f"[RAG] Error checking conversation model: {str(e)}")
+                
+                # Only check all remaining collections if explicitly requested
+                check_all_collections = data.get('check_all_collections', False)
+                if not retrieved_context and check_all_collections:
                     app.logger.info(f"[RAG] Checking all remaining collections for relevant content")
                     for coll_name in collection_names:
                         # Skip collections we already checked
