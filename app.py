@@ -687,10 +687,20 @@ def generate():
         # Only enable RAG if explicitly requested or documents exist in conversation
         rag_enabled = data.get('use_rag', False)  # Default to False to prevent unwanted RAG
         
-        # First check if a bot is explicitly selected
+        # First check if a bot is explicitly selected in the request
         if bot_id:
-            app.logger.info(f"[RAG] Bot {bot_id} explicitly selected, enabling RAG")
+            app.logger.info(f"[RAG] Bot {bot_id} explicitly selected in request, enabling RAG")
             rag_enabled = True
+        # Then check if the conversation is associated with a bot (model field starts with 'bot:')
+        elif conversation_id and not secret:
+            try:
+                conversation = db.get_conversation(conversation_id)
+                if conversation and 'model' in conversation and conversation['model'].startswith('bot:'):
+                    app.logger.info(f"[RAG] Conversation {conversation_id} is associated with a bot (model: {conversation['model']}), enabling RAG")
+                    rag_enabled = True
+            except Exception as e:
+                app.logger.error(f"[RAG] Error checking conversation model: {str(e)}")
+                # Continue with default rag_enabled value
         
         # Then check conversation-specific documents
         if not secret and rag_enabled and rag.has_documents(conversation_id=conversation_id):
@@ -761,15 +771,19 @@ def generate():
                     conversation = db.get_conversation(conversation_id)
                     app.logger.info(f"[RAG] Conversation data: {conversation}")
                     
-                    if conversation and 'bot_id' in conversation:
+                    # Check if conversation has a model field that starts with 'bot:'
+                    if conversation and 'model' in conversation and conversation['model'].startswith('bot:'):
+                        # Extract bot_id from the model string (format: 'bot:{bot_id}')
+                        bot_id = conversation['model'].split(':', 1)[1]
+                        bot_collection = f"bot_{bot_id}"
+                        app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id} from model field")
+                    elif conversation and 'bot_id' in conversation:
+                        # Fallback to direct bot_id field if it exists
                         bot_id = conversation['bot_id']
                         bot_collection = f"bot_{bot_id}"
-                        app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id}")
+                        app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id} from bot_id field")
                     else:
                         app.logger.info(f"[RAG] No bot associated with conversation {conversation_id}")
-                        
-                        # NEVER try to find a bot with knowledge files automatically
-                        # This prevents unwanted RAG triggering
                         bot_collection = None
                         app.logger.info(f"[RAG] No bot explicitly selected - skipping RAG")
                         use_rag = False  # Explicitly disable RAG
