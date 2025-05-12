@@ -45,19 +45,65 @@ def load_documents(source_directory):
     loader_md = DirectoryLoader(source_directory, glob="**/*.md", loader_cls=UnstructuredMarkdownLoader, recursive=True, show_progress=True)
     documents.extend(loader_md.load())
     
-    loader_xml = DirectoryLoader(source_directory, glob="**/*.xml", loader_cls=UnstructuredXMLLoader, recursive=True, show_progress=True)
-    documents.extend(loader_xml.load())
+    # Enhanced XML loader with better Chinese text handling
+    try:
+        print("Loading XML files with enhanced Chinese text handling")
+        loader_xml = DirectoryLoader(
+            source_directory, 
+            glob="**/*.xml", 
+            loader_cls=UnstructuredXMLLoader, 
+            loader_kwargs={
+                "mode": "elements",  # Extract elements for better structure preservation
+                "strategy": "fast",   # Fast parsing strategy
+            },
+            recursive=True, 
+            show_progress=True
+        )
+        xml_docs = loader_xml.load()
+        print(f"Loaded {len(xml_docs)} XML documents")
+        documents.extend(xml_docs)
+    except Exception as e:
+        print(f"Error loading XML files: {e}")
+        # Fallback to basic XML loader
+        try:
+            loader_xml = DirectoryLoader(source_directory, glob="**/*.xml", loader_cls=UnstructuredXMLLoader, recursive=True, show_progress=True)
+            xml_docs = loader_xml.load()
+            print(f"Loaded {len(xml_docs)} XML documents with fallback loader")
+            documents.extend(xml_docs)
+        except Exception as e2:
+            print(f"Error with fallback XML loader: {e2}")
+            # Continue without XML files if both methods fail
 
     print(f"Loaded {len(documents)} documents.")
     return documents
 
 def split_documents(documents):
-    """Splits documents into smaller chunks."""
+    """Splits documents into smaller chunks with enhanced handling for Chinese text."""
     print("Splitting documents...")
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE, 
-        chunk_overlap=CHUNK_OVERLAP
-    )
+    
+    # Check if any document contains Chinese text
+    has_chinese = False
+    for doc in documents:
+        if any('\u4e00' <= char <= '\u9fff' for char in doc.page_content):
+            has_chinese = True
+            break
+    
+    if has_chinese:
+        print("Chinese text detected - using specialized splitter")
+        # For Chinese text, we need different separators
+        # Chinese doesn't use spaces between words, so we need to split on punctuation
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
+            separators=["。", "！", "？", "；", "\n\n", "\n", "，", ".", "!", "?", ";", ",", " ", ""],
+            keep_separator=True
+        )
+    else:
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=CHUNK_SIZE, 
+            chunk_overlap=CHUNK_OVERLAP
+        )
+    
     split_docs = text_splitter.split_documents(documents)
     print(f"Split into {len(split_docs)} chunks.")
     return split_docs
@@ -243,75 +289,174 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             }
         )
         
-        # For Chinese queries, expand the query with variations to improve matching
+        # For Chinese queries, use specialized processing
         is_chinese = any('\u4e00' <= char <= '\u9fff' for char in query)
         
         print(f"Querying vector store for: '{query[:50]}...'")
         print(f"Query language detected: {'Chinese' if is_chinese else 'Other'}")
+        print(f"Collection: {collection_name}, Documents: {vectorstore._collection.count()}")
         
-        # Use the retriever to get relevant documents
-        try:
-            # For Chinese text, try to get more results
-            if is_chinese:
-                print("Using expanded retrieval for Chinese query")
-                # Try different variations of the query
-                results = retriever.get_relevant_documents(query)
+        # Extract key terms for Chinese queries
+        key_terms = []
+        if is_chinese:
+            # Extract all Chinese characters as potential key terms
+            key_terms = [char for char in query if '\u4e00' <= char <= '\u9fff']
+            print(f"Extracted {len(key_terms)} Chinese characters: {''.join(key_terms)}")
+            
+            # Look for multi-character terms (basic approach)
+            # In Chinese, meaningful terms are often 2-4 characters
+            multi_char_terms = []
+            for i in range(len(key_terms) - 1):
+                # Add 2-character terms
+                multi_char_terms.append(key_terms[i] + key_terms[i+1])
                 
-                # If no results, try without question marks which can affect matching
-                if not results:
-                    clean_query = query.replace('?', '').replace('？', '')
-                    print(f"Retrying with cleaned query: '{clean_query}'")
-                    results = retriever.get_relevant_documents(clean_query)
+                # Add 3-character terms if possible
+                if i < len(key_terms) - 2:
+                    multi_char_terms.append(key_terms[i] + key_terms[i+1] + key_terms[i+2])
+            
+            print(f"Generated {len(multi_char_terms)} multi-character terms: {', '.join(multi_char_terms)}")
+            
+        # Use the retriever to get relevant documents with multiple strategies
+        all_results = []
+        try:
+            # Strategy 1: Try original query first
+            print("Strategy 1: Using original query")
+            results1 = retriever.get_relevant_documents(query)
+            print(f"Strategy 1 results: {len(results1)}")
+            all_results.extend(results1)
+            
+            # For Chinese text, try additional strategies
+            if is_chinese:
+                # Strategy 2: Try without question marks and other punctuation
+                clean_query = ''.join([c for c in query if '\u4e00' <= c <= '\u9fff' or c.isalnum()])
+                if clean_query != query:
+                    print(f"Strategy 2: Using cleaned query: '{clean_query}'")
+                    results2 = retriever.get_relevant_documents(clean_query)
+                    print(f"Strategy 2 results: {len(results2)}")
+                    all_results.extend([r for r in results2 if r not in all_results])
+                
+                # Strategy 3: Try with key multi-character terms
+                if multi_char_terms:
+                    # Join the most important terms (first few multi-char terms)
+                    term_query = ' '.join(multi_char_terms[:5])  
+                    print(f"Strategy 3: Using key terms: '{term_query}'")
+                    results3 = retriever.get_relevant_documents(term_query)
+                    print(f"Strategy 3 results: {len(results3)}")
+                    all_results.extend([r for r in results3 if r not in all_results])
+                
+                # Strategy 4: Direct similarity search as last resort
+                if len(all_results) < 5:  # If we still don't have enough results
+                    print("Strategy 4: Using direct similarity search")
+                    results4 = vectorstore.similarity_search(query, k=n_results)
+                    print(f"Strategy 4 results: {len(results4)}")
+                    all_results.extend([r for r in results4 if r not in all_results])
+            
+            # Deduplicate and limit results
+            seen = set()
+            results = []
+            for doc in all_results:
+                # Use content hash as a simple deduplication key
+                content_hash = hash(doc.page_content[:100])  # Use first 100 chars as hash key
+                if content_hash not in seen:
+                    seen.add(content_hash)
+                    results.append(doc)
+                if len(results) >= n_results:
+                    break
                     
-                # If still no results, try a more aggressive approach
-                if not results:
-                    # Try with just the key terms from the query
-                    # This is a simple approach - in production you might use a proper Chinese NLP library
-                    words = [w for w in query if '\u4e00' <= w <= '\u9fff']
-                    if len(words) > 3:  # If we have enough characters
-                        simplified_query = ''.join(words)
-                        print(f"Retrying with simplified query: '{simplified_query}'")
-                        results = retriever.get_relevant_documents(simplified_query)
-            else:
-                results = retriever.get_relevant_documents(query)
+            print(f"Final results after deduplication: {len(results)}")
+            
+            # If we still have no results, fall back to basic similarity search
+            if not results:
+                print("No results from all strategies, falling back to basic similarity search")
+                results = vectorstore.similarity_search(query, k=n_results)
+        
         except Exception as e:
             print(f"Error during retrieval: {e}")
-            # Fallback to basic retrieval
+            # Fallback to basic similarity search
             results = vectorstore.similarity_search(query, k=n_results)
+            print(f"Fallback results: {len(results)}")
+        
+        # If we still have no results, try one last desperate approach
+        if not results and is_chinese:
+            print("Last resort: Searching for any Chinese content")
+            # Try to find any documents with Chinese text
+            for char in key_terms:
+                try:
+                    char_results = vectorstore.similarity_search(char, k=5)
+                    if char_results:
+                        print(f"Found {len(char_results)} results for character '{char}'")
+                        results.extend(char_results)
+                        if len(results) >= n_results:
+                            results = results[:n_results]
+                            break
+                except Exception:
+                    continue
         
         print(f"Retrieved {len(results)} context chunks from knowledge base")
         
-        # Detailed logging of each retrieved chunk
-        for i, doc in enumerate(results):
-            source = doc.metadata.get('source', 'unknown source')
-            page = doc.metadata.get('page', 'unknown page')
-            print(f"\nContext chunk #{i+1}:")
-            print(f"  Source: {source}")
-            print(f"  Page/Section: {page}")
-            print(f"  Similarity score: {doc.metadata.get('score', 'N/A')}")
-            print(f"  Content snippet: {doc.page_content[:100]}...")
+        # Format the context for the model with better organization and relevance scoring
+        formatted_context = ""
         
-        # Enhanced context handling with metadata
-        context_parts = []
+        # Score the results based on relevance indicators
+        scored_results = []
         for i, doc in enumerate(results):
-            # Extract metadata for better context
-            source = doc.metadata.get('source', 'unknown')
-            filename = doc.metadata.get('filename', os.path.basename(source) if isinstance(source, str) else 'unknown')
+            # Extract source document name from metadata if available
+            source = doc.metadata.get('source', 'Unknown source')
+            # Get just the filename without path
+            if source != 'Unknown source' and isinstance(source, str):
+                source = os.path.basename(source)
             
-            # Format the context with source information
-            context_part = f"--- Document {i+1}: {filename} ---\n{doc.page_content}\n"
-            context_parts.append(context_part)
+            # Calculate a basic relevance score
+            # This is a simple heuristic - could be improved with proper relevance scoring
+            score = 1.0
             
-        # Join all context parts with clear separators
-        context = "\n\n".join(context_parts)
+            # Check if query terms appear in the content (basic relevance check)
+            if is_chinese:
+                # For Chinese, check if any of the multi-character terms appear
+                if 'multi_char_terms' in locals() and multi_char_terms:
+                    for term in multi_char_terms[:5]:  # Check the first 5 terms
+                        if term in doc.page_content:
+                            score += 0.2  # Boost score for each matching term
+            else:
+                # For non-Chinese, check for query words
+                query_words = query.lower().split()
+                for word in query_words:
+                    if len(word) > 3 and word.lower() in doc.page_content.lower():
+                        score += 0.1
+            
+            # Penalize very short or very long chunks slightly
+            content_len = len(doc.page_content)
+            if content_len < 100:
+                score -= 0.1
+            elif content_len > 3000:
+                score -= 0.1
+                
+            scored_results.append((doc, source, score))
         
-        if context:
-            print(f"Total context length: {len(context)} characters")
-            print(f"Retrieved {len(results)} document chunks")
+        # Sort by score (highest first)
+        scored_results.sort(key=lambda x: x[2], reverse=True)
+        
+        # Format the context, now ordered by relevance
+        for i, (doc, source, score) in enumerate(scored_results):
+            # Format each chunk with source and content
+            formatted_context += f"\n\n--- Context Chunk {i+1} (Source: {source}, Relevance: {score:.2f}) ---\n{doc.page_content}\n"
+        
+        # Add a summary of what was retrieved
+        if results:
+            context_summary = f"\n\nRetrieved {len(results)} relevant context chunks from knowledge base "
+            if is_chinese:
+                context_summary += f"for Chinese query: '{query}'"
+            else:
+                context_summary += f"for query: '{query}'"
+            formatted_context = context_summary + formatted_context
+        
+        # Print summary for logging
+        if results:
+            print(f"Retrieved {len(results)} document chunks, formatted context length: {len(formatted_context)}")
         else:
             print("No relevant context found in knowledge base")
             
-        return context
+        return formatted_context
     except Exception as e:
         print(f"Error retrieving context from Chroma vector store: {e}")
         print("Please ensure the vector store has been set up correctly.")
