@@ -11,6 +11,7 @@ import time
 import database as db
 import rag # Import the RAG module
 from models.bot import Bot
+from progress_tracker import create_progress, update_progress, get_progress, get_all_progress, clear_progress
 from werkzeug.utils import secure_filename # Import for secure filenames
 import requests  # For ComfyUI API calls
 import base64     # For encoding images if needed
@@ -705,13 +706,23 @@ def generate():
             # Retrieve context from conversation documents with timeout handling
             retrieval_start = time.time()
             try:
+                # Generate a unique operation ID for tracking
+                operation_id = f"rag_conv_{conversation_id}_{int(time.time())}"
+                
                 # Set a timeout for retrieval (120 seconds)
                 import threading
                 import concurrent.futures
                 
                 # Use ThreadPoolExecutor to run with timeout
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(rag.retrieve_context, query=user_message, conversation_id=conversation_id)
+                    future = executor.submit(rag.retrieve_context, 
+                                          query=user_message, 
+                                          conversation_id=conversation_id,
+                                          operation_id=operation_id)
+                    
+                    # Log the operation ID for tracking
+                    app.logger.info(f"[RAG] Started conversation retrieval operation: {operation_id}")
+                    
                     try:
                         retrieved_context = future.result(timeout=120)  # 2 minute timeout
                         retrieval_time = time.time() - retrieval_start
@@ -883,13 +894,24 @@ def generate():
                                 # Retrieve context from bot's knowledge base with timeout handling
                                 retrieval_start = time.time()
                                 try:
+                                    # Generate a unique operation ID for tracking
+                                    operation_id = f"rag_bot_{bot_id}_{int(time.time())}"
+                                    
                                     # Set a timeout for retrieval (180 seconds - longer for bot knowledge)
                                     import concurrent.futures
                                     
                                     # Use ThreadPoolExecutor to run with timeout
                                     with concurrent.futures.ThreadPoolExecutor() as executor:
-                                        future = executor.submit(rag.retrieve_context, user_message, collection_name=bot_collection)
+                                        future = executor.submit(rag.retrieve_context, 
+                                                              user_message, 
+                                                              collection_name=bot_collection,
+                                                              operation_id=operation_id)
+                                        
+                                        # Return the operation_id to the client for progress tracking
+                                        app.logger.info(f"[RAG] Started retrieval operation: {operation_id}")
+                                        
                                         try:
+                                            # Get the result with timeout
                                             bot_context = future.result(timeout=180)  # 3 minute timeout
                                             retrieval_time = time.time() - retrieval_start
                                             
@@ -907,8 +929,6 @@ def generate():
                                 except Exception as e:
                                     # Handle any other exceptions during retrieval
                                     app.logger.error(f"[RAG] Error during bot knowledge retrieval: {str(e)}")
-                                else:
-                                    app.logger.info(f"[RAG] No relevant context found in bot's knowledge base")
                             else:
                                 app.logger.info(f"[RAG] Bot {bot_id} has {len(bot.knowledge_files)} files but no indexed documents in collection {bot_collection}")
                                 
@@ -3093,6 +3113,38 @@ def chat_with_bot(bot_id):
             'status': 'error',
             'message': str(e)
         }), 500
+
+# --- Progress Tracking API Routes ---
+
+@app.route('/api/progress/<operation_id>', methods=['GET'])
+@login_required
+def get_operation_progress(operation_id):
+    """Get the progress of a long-running operation"""
+    progress = get_progress(operation_id)
+    if not progress:
+        return jsonify({
+            'status': 'error',
+            'message': f'No progress found for operation ID: {operation_id}'
+        }), 404
+    
+    return jsonify({
+        'status': 'success',
+        'progress': progress
+    })
+
+
+@app.route('/api/progress', methods=['GET'])
+@login_required
+def get_all_operations_progress():
+    """Get the progress of all operations"""
+    all_progress = get_all_progress()
+    return jsonify({
+        'status': 'success',
+        'operations': list(all_progress.values())
+    })
+
+
+# --- End of API Routes ---
 
 if __name__ == '__main__':
     app.run(debug=True)

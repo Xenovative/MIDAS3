@@ -1,4 +1,5 @@
 import os
+import uuid
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, UnstructuredMarkdownLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -7,6 +8,9 @@ from config import OLLAMA_HOST
 
 # Import custom loaders
 from custom_loaders import ChineseTheologyXMLLoader, ChineseTheologyXMLDirectoryLoader
+
+# Import progress tracker
+from progress_tracker import create_progress, update_progress, get_progress
 
 # --- Configuration ---
 DEFAULT_EMBED_MODEL = "nomic-embed-text"
@@ -263,7 +267,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=500):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=500, operation_id=None):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
@@ -276,21 +280,39 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         str: The retrieved context as a string
     """
     try:
+        # Generate operation_id if not provided
+        if operation_id is None:
+            operation_id = f"rag_{uuid.uuid4().hex[:8]}"
+            
+        # Initialize progress tracking
+        create_progress(
+            operation_id=operation_id,
+            total_steps=10,  # We'll divide the retrieval process into 10 steps
+            description=f"Retrieving context for query: '{query[:30]}...'"
+        )
+        update_progress(operation_id, current_step=1, description="Initializing retrieval")
+        
         # If conversation_id is provided, use a conversation-specific collection
         if conversation_id:
             collection_name = get_conversation_collection_name(conversation_id)
             
-        print(f"Loading persisted Chroma vector store from: {CHROMA_PERSIST_DIR}, collection: {collection_name}")
-        # Load the persisted vector store
+        print(f"--- Retrieving Context from Collection: {collection_name} ---")
+        update_progress(operation_id, current_step=2, description=f"Connecting to collection: {collection_name}")
+        
+        # Initialize the Chroma vector store with the specified collection
         vectorstore = Chroma(
             persist_directory=CHROMA_PERSIST_DIR, 
             embedding_function=ollama_ef, 
             collection_name=collection_name
         )
+        update_progress(operation_id, current_step=3, description="Connected to vector database")
         
         # Get total document count to determine retrieval strategy
         total_docs = vectorstore._collection.count()
         print(f"Total documents in collection: {total_docs}")
+        update_progress(operation_id, current_step=4, 
+                       description=f"Found {total_docs} documents in collection",
+                       details={"total_documents": total_docs})
         
         # Determine how many documents to retrieve based on collection size
         # For all collections, try to retrieve a substantial portion of documents
@@ -308,9 +330,16 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             k_value = n_results
         
         print(f"Retrieval strategy: fetch_k={fetch_k}, k={k_value}")
+        update_progress(operation_id, current_step=5, 
+                       description=f"Planning to retrieve {k_value} documents (fetch_k={fetch_k})",
+                       details={"fetch_k": fetch_k, "k_value": k_value})
         
         # For Chinese text, we need to be more lenient with similarity scores
         # Use MMR retriever to maximize relevance and diversity
+        update_progress(operation_id, current_step=6, 
+                       description="Setting up retriever with MMR search strategy",
+                       details={"search_type": "mmr", "lambda_mult": 0.7})
+        
         retriever = vectorstore.as_retriever(
             search_type="mmr",  # Maximum Marginal Relevance - balances relevance with diversity
             search_kwargs={
@@ -319,12 +348,18 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                 "lambda_mult": 0.7  # Lower values (0.5-0.7) prioritize diversity over pure relevance
             }
         )
+        update_progress(operation_id, current_step=7, 
+                       description="Retriever configured, preparing to execute query")
         
-        # For Chinese queries, use specialized processing
+        # For Chinese queries, expand the query with variations to improve matching
         is_chinese = any('\u4e00' <= char <= '\u9fff' for char in query)
         
         print(f"Querying vector store for: '{query[:50]}...'")
         print(f"Query language detected: {'Chinese' if is_chinese else 'Other'}")
+        
+        update_progress(operation_id, current_step=8, 
+                       description=f"Executing query: '{query[:30]}...'" + (" (Chinese text detected)" if is_chinese else ""),
+                       details={"is_chinese": is_chinese, "query_sample": query[:50]})
         print(f"Collection: {collection_name}, Documents: {vectorstore._collection.count()}")
         
         # Extract key terms for Chinese queries
@@ -350,6 +385,8 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # Use the retriever to get relevant documents with multiple strategies
         all_results = []
         try:
+            update_progress(operation_id, current_step=9, 
+                           description="Starting document retrieval with multiple strategies")
             # Strategy 1: Try original query first
             print("Strategy 1: Using original query")
             results1 = retriever.get_relevant_documents(query)
@@ -517,13 +554,29 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # Print summary for logging
         if results:
             print(f"Retrieved {len(results)} document chunks, formatted context length: {len(formatted_context)}")
+            update_progress(operation_id, current_step=10, status="completed",
+                           description=f"Retrieved {len(results)} document chunks",
+                           details={
+                               "chunks_retrieved": len(results),
+                               "context_length": len(formatted_context),
+                               "sources": len(set(doc.metadata.get('source', 'Unknown') for doc in results))
+                           })
         else:
             print("No relevant context found in knowledge base")
+            update_progress(operation_id, current_step=10, status="completed",
+                           description="No relevant context found in knowledge base")
             
         return formatted_context
     except Exception as e:
-        print(f"Error retrieving context from Chroma vector store: {e}")
+        error_msg = f"Error retrieving context from Chroma vector store: {e}"
+        print(error_msg)
         print("Please ensure the vector store has been set up correctly.")
+        
+        # Update progress with error status
+        if 'operation_id' in locals():
+            update_progress(operation_id, status="error", error=str(e),
+                          description="Error during context retrieval")
+        
         return ""
 
 # --- Example Usage (Optional) ---
