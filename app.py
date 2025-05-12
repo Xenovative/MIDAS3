@@ -2792,10 +2792,17 @@ def reindex_bot_knowledge(bot):
         total_chunks = 0
         start_time = time.time()
         
-        # Create vectorstore once for all files
+        # Check if any files are XML and might contain Chinese content
+        has_chinese_content = any(f.endswith('.xml') for f in bot.knowledge_files)
+        
+        # Use Chinese-specific embedding model if we have XML files that might contain Chinese
+        embedding_function = rag.get_embedding_function("漢語" if has_chinese_content else None)
+        app.logger.info(f"[RAG] Using embedding model: {embedding_function.model}")
+        
+        # Create vectorstore once for all files with appropriate embedding model
         vectorstore = rag.Chroma(
             persist_directory=rag.CHROMA_PERSIST_DIR, 
-            embedding_function=rag.ollama_ef, 
+            embedding_function=embedding_function, 
             collection_name=collection_name
         )
         

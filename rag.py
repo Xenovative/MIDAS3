@@ -25,10 +25,28 @@ def get_conversation_collection_name(conversation_id):
 os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
 
 # --- LangChain Embedding Function ---
-ollama_ef = OllamaEmbeddings(
-    base_url=OLLAMA_HOST,
-    model=DEFAULT_EMBED_MODEL
-)
+def get_embedding_function(query=None):
+    """Get the appropriate embedding function based on the query language"""
+    # Check if query contains Chinese characters
+    if query and any(u'\u4e00' <= c <= u'\u9fff' for c in query):
+        # Use Chinese-specific embedding model if available
+        try:
+            print(f"Using Chinese-specific embedding model for query: '{query}'")
+            return OllamaEmbeddings(
+                base_url=OLLAMA_HOST,
+                model="herald/dmeta-embedding-zh"
+            )
+        except Exception as e:
+            print(f"Error using Chinese embedding model: {str(e)}. Falling back to default.")
+    
+    # Default embedding model
+    return OllamaEmbeddings(
+        base_url=OLLAMA_HOST,
+        model=DEFAULT_EMBED_MODEL
+    )
+
+# Initialize with default embedding function
+ollama_ef = get_embedding_function()
 
 # --- Document Loading and Processing ---
 
@@ -219,10 +237,13 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         if not collection_exists(collection_name):
             return ""
         
-        # Initialize Chroma with the collection
+        # Get appropriate embedding function based on query language
+        embedding_function = get_embedding_function(query)
+        
+        # Initialize Chroma with the collection and language-specific embedding
         vectorstore = Chroma(
             persist_directory=CHROMA_PERSIST_DIR,
-            embedding_function=ollama_ef,
+            embedding_function=embedding_function,
             collection_name=collection_name
         )
         
