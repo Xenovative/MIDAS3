@@ -23,7 +23,7 @@ from flask import Flask, render_template, request, jsonify, Response, redirect, 
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
 from passlib.hash import bcrypt
 import sqlite3  # Import sqlite3 here
-from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader, UnstructuredXMLLoader
+from langchain_community.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader, UnstructuredXMLLoader
 from fast_loaders import FastXMLLoader
 
 app = Flask(__name__, 
@@ -67,7 +67,7 @@ def get_indexing_progress(bot_id):
 # Add route to start re-indexing
 @app.route('/api/bots/<bot_id>/indexing/reindex', methods=['POST'])
 @login_required
-def reindex_bot_knowledge_files(bot_id):
+def start_bot_knowledge_reindex(bot_id):
     """Start re-indexing knowledge files for a bot"""
     try:
         # Get the bot
