@@ -673,10 +673,16 @@ def generate():
         retrieved_context = ""
         bot_id = data.get('bot_id')
         
+        # Only enable RAG if explicitly requested or documents exist in conversation
+        rag_enabled = data.get('use_rag', True)  # Default to True for backward compatibility
+        
         # First check conversation-specific documents
-        if not secret and rag.has_documents(conversation_id=conversation_id):
+        if not secret and rag_enabled and rag.has_documents(conversation_id=conversation_id):
             app.logger.info(f"[RAG] Documents found for conversation {conversation_id}, using conversation RAG")
             use_rag = True
+        elif not rag_enabled:
+            app.logger.info(f"[RAG] RAG explicitly disabled in request")
+            use_rag = False
             
             # Log RAG query details before retrieval
             app.logger.info(f"[RAG] Querying conversation knowledge with: '{user_message[:100]}...'")
@@ -717,22 +723,27 @@ def generate():
                     else:
                         app.logger.info(f"[RAG] No bot associated with conversation {conversation_id}")
                         
-                        # Try to find any bot with knowledge files as fallback
-                        try:
-                            app.logger.info(f"[RAG] Trying to find any bot with knowledge files")
-                            all_bots = Bot.get_all()
-                            for b in all_bots:
-                                if b.knowledge_files:
-                                    bot_id = b.id
-                                    bot_collection = f"bot_{bot_id}"
-                                    app.logger.info(f"[RAG] Found bot {bot_id} with knowledge files as fallback")
-                                    break
-                            else:
+                        # Only try to find a bot with knowledge files if explicitly requested
+                        if data.get('use_rag_fallback', False):
+                            try:
+                                app.logger.info(f"[RAG] Trying to find any bot with knowledge files")
+                                all_bots = Bot.get_all()
+                                for b in all_bots:
+                                    if b.knowledge_files:
+                                        bot_id = b.id
+                                        bot_collection = f"bot_{bot_id}"
+                                        app.logger.info(f"[RAG] Found bot {bot_id} with knowledge files as fallback")
+                                        break
+                                else:
+                                    bot_collection = None
+                                    app.logger.info(f"[RAG] No bots with knowledge files found")
+                            except Exception as be:
+                                app.logger.error(f"[RAG] Error finding bots: {str(be)}")
                                 bot_collection = None
-                                app.logger.info(f"[RAG] No bots with knowledge files found")
-                        except Exception as be:
-                            app.logger.error(f"[RAG] Error finding bots: {str(be)}")
+                        else:
                             bot_collection = None
+                            app.logger.info(f"[RAG] No bot selected and fallback not requested - skipping RAG")
+                            use_rag = False  # Explicitly disable RAG
                 except Exception as e:
                     app.logger.error(f"[RAG] Error getting conversation bot: {str(e)}")
                     bot_collection = None
