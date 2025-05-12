@@ -2330,7 +2330,7 @@ def generate_image():
         
     # ComfyUI API endpoint
     comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://localhost:8188')
-    comfy_output_dir = os.environ.get('COMFYUI_OUTPUT_DIR', 'MIDAS_standalone/ComfyUI/output')
+    comfy_output_dir = os.environ.get('COMFYUI_OUTPUT_DIR', 'MIDAS_standalone/ComfyUI/Output')
         
     # Determine which workflow to use
     workflow = None
@@ -2393,35 +2393,43 @@ def generate_image():
 
     # Wait 60 seconds before first check to give time for image generation
     print(f"Waiting 60 seconds for image generation to complete for prompt_id {result.get('prompt_id')}")
+    # Also log to the application logger
+    app.logger.info(f"Waiting 60 seconds for image generation to complete for prompt_id {result.get('prompt_id')}")
     time.sleep(60)
     
     # First check after initial wait
     print(f"Checking history for prompt_id {result.get('prompt_id')} (first check)")
+    app.logger.info(f"Checking history for prompt_id {result.get('prompt_id')} (first check)")
     history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
-    print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
+    print(f"History response: {history_resp.status_code}")
+    app.logger.info(f"History response: {history_resp.status_code}, content length: {len(history_resp.text)}")
     
     # If not ready, wait in shorter intervals with more checks
     attempts = 0
     max_additional_attempts = 10
+    
+    # Add a log message to the main application log
+    app.logger.info(f"Starting image generation polling for prompt_id {result.get('prompt_id')}")
+    
     while (history_resp.status_code != 200 or not history_resp.json().get(result.get('prompt_id'), {}).get('outputs')) and attempts < max_additional_attempts:
         attempts += 1
         print(f"Image not ready yet. Waiting additional 30 seconds for prompt_id {result.get('prompt_id')} (attempt {attempts}/{max_additional_attempts})")
+        # Also log to the application logger
+        app.logger.info(f"Image not ready yet. Waiting additional 30 seconds for prompt_id {result.get('prompt_id')} (attempt {attempts}/{max_additional_attempts})")
         time.sleep(30)
         
         # Check again
         print(f"Checking history again for prompt_id {result.get('prompt_id')} (check #{attempts+1})")
+        app.logger.info(f"Checking history again for prompt_id {result.get('prompt_id')} (check #{attempts+1})")
         history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
-        print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
-        
-        # Second check after additional wait
-        print(f"Checking history again for prompt_id {result.get('prompt_id')} (second check)")
-        history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
-        print(f"History response: {history_resp.status_code}, content: {history_resp.text}")
+        print(f"History response: {history_resp.status_code}")
+        app.logger.info(f"History response: {history_resp.status_code}, content length: {len(history_resp.text)}")
     
     if history_resp.status_code == 200:
         history_data = history_resp.json()
         # Check if the prompt has outputs (meaning it's complete)
         if history_data.get(result.get('prompt_id'), {}).get('outputs'):
+            app.logger.info(f"Image generation complete for prompt_id {result.get('prompt_id')}")
             # Get the outputs for the SaveImage node
             outputs = history_data[result.get('prompt_id')]['outputs']
             image_data = None
@@ -2438,8 +2446,40 @@ def generate_image():
 
             if image_filename:
                 # Construct path to the image in ComfyUI's output directory
-                image_path = os.path.join(comfy_output_dir, image_filename)
-                print(f"Looking for image at: {image_path}")  # Debug output
+                # Convert forward slashes to backslashes for Windows
+                normalized_output_dir = comfy_output_dir.replace('/', os.path.sep)
+                image_path = os.path.join(normalized_output_dir, image_filename)
+                print(f"Looking for image at: {image_path}")
+                app.logger.info(f"Looking for image at: {image_path}")
+                
+                # Try multiple possible paths if the file doesn't exist
+                possible_paths = [
+                    # Original path
+                    image_path,
+                    # Try with absolute path from app root
+                    os.path.join(os.getcwd(), normalized_output_dir, image_filename),
+                    # Try with Output capitalized
+                    os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'Output', image_filename),
+                    # Try with output lowercase
+                    os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'output', image_filename),
+                    # Try with ComfyUI/output directly
+                    os.path.join('ComfyUI', 'Output', image_filename),
+                    # Try with just the filename in the current directory
+                    os.path.join('Output', image_filename),
+                    # Try with just the filename
+                    image_filename
+                ]
+                
+                # Log all paths we're checking
+                app.logger.info(f"Checking the following paths for image: {possible_paths}")
+                
+                # Try each path
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        image_path = path
+                        print(f"Found image at: {image_path}")
+                        app.logger.info(f"Found image at: {image_path}")
+                        break
                 # Make sure the file exists
                 if os.path.exists(image_path):
                     print(f"Found image at: {image_path}")  # Debug output
@@ -2485,6 +2525,7 @@ def generate_image():
                             'seed': seed  # Include the seed in the response
                         })
 
+            app.logger.warning(f"Image generation completed but file not found for prompt_id {result.get('prompt_id')}")
             # If we couldn't find the image or it wasn't saved yet
             return jsonify({
                 'status': 'error',
@@ -2492,6 +2533,7 @@ def generate_image():
             }), 404
 
     # If we've exhausted all attempts and still haven't found the image
+    app.logger.error(f"Timed out waiting for image generation to complete for prompt_id {result.get('prompt_id')}")
     return jsonify({
         'status': 'error',
         'message': 'Timed out waiting for image generation to complete'
