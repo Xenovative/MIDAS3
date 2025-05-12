@@ -23,7 +23,7 @@ from flask import Flask, render_template, request, jsonify, Response, redirect, 
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user, UserMixin
 from passlib.hash import bcrypt
 import sqlite3  # Import sqlite3 here
-from langchain_community.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader, UnstructuredXMLLoader
+from langchain.document_loaders import PyPDFLoader, TextLoader, UnstructuredMarkdownLoader, UnstructuredXMLLoader
 from fast_loaders import FastXMLLoader
 
 app = Flask(__name__, 
@@ -41,57 +41,7 @@ app.config['REQUEST_BUFFER_SIZE'] = 100 * 1024 * 1024  # 100MB
 # Global progress tracking
 if not hasattr(app, 'indexing_progress'):
     app.indexing_progress = {}
-    # Structure: {bot_id: {status: 'processing', progress: 0.0, current_file: '', files_processed: 0, total_files: 0, chunks_processed: 0, total_chunks: 0}}
-
-# Add a route to get indexing progress
-@app.route('/api/bots/<bot_id>/indexing/progress', methods=['GET'])
-@login_required
-def get_bot_indexing_progress(bot_id):
-    """Get the current progress of indexing for a bot"""
-    try:
-        if bot_id in app.indexing_progress:
-            return jsonify(app.indexing_progress[bot_id])
-        else:
-            return jsonify({
-                'status': 'idle',
-                'progress': 0.0,
-                'message': 'No indexing in progress'
-            })
-    except Exception as e:
-        app.logger.error(f"Error getting indexing progress: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': f'Error: {str(e)}'
-        }), 500
-
-# Add route to start re-indexing
-@app.route('/api/bots/<bot_id>/indexing/reindex', methods=['POST'])
-@login_required
-def start_bot_knowledge_reindex(bot_id):
-    """Start re-indexing knowledge files for a bot"""
-    try:
-        # Get the bot
-        bot = Bot.get_bot_by_id(bot_id)
-        if not bot:
-            return jsonify({
-                'status': 'error',
-                'message': f'Bot {bot_id} not found'
-            }), 404
-        
-        # Start a background task to reindex the files
-        import threading
-        threading.Thread(target=reindex_bot_knowledge, args=(bot,)).start()
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Re-indexing started'
-        })
-    except Exception as e:
-        app.logger.error(f"Error re-indexing bot knowledge files: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': f'Error: {str(e)}'
-        }), 500
+    # Structure: {bot_id: {current: 0, total: 0, status: '', file: ''}}
 
 # Import for SSE
 from flask import Response, stream_with_context

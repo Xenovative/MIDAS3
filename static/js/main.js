@@ -3333,7 +3333,7 @@ function initializeBotManagement() {
     const cancelBotEditButton = document.getElementById('cancel-bot-edit');
     const uploadKnowledgeButton = document.getElementById('upload-knowledge-button');
     const knowledgeFileInput = document.getElementById('knowledge-file-input');
-
+    
     // Temperature and Top-P sliders
     const temperatureSlider = document.getElementById('bot-temperature');
     const temperatureValue = document.getElementById('temperature-value');
@@ -5130,169 +5130,44 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-    // Call this function after the DOM is loaded
-    document.addEventListener('DOMContentLoaded', function() {
-        // Initialize all components
-        initializeSidebarModelSelector();
-        handleInitialLoading();
+// Control initial loading screen
+function handleInitialLoading() {
+    const loadingScreen = document.getElementById('initial-loading-screen');
+    
+    // Check if key elements are loaded
+    function checkIfAppIsReady() {
+        // Different minimum loading times for desktop vs mobile
+        const isMobile = window.innerWidth <= 768;
+        const minLoadTime = isMobile ? 3000 : 1500; // 3 seconds for mobile, 1.5 for desktop
         
-        // Initialize quota exceeded modal close button
-        const closeQuotaModal = document.getElementById('close-quota-modal');
-        const confirmQuotaModal = document.getElementById('confirm-quota-modal');
-        const quotaExceededModal = document.getElementById('quota-exceeded-modal');
+        const startTime = Date.now();
         
-        if (closeQuotaModal && quotaExceededModal) {
-            closeQuotaModal.addEventListener('click', function() {
-                quotaExceededModal.style.display = 'none';
-            });
-        }
+        // Elements to check if they're loaded/rendered
+        const elementsToCheck = [
+            document.querySelector('.sidebar'),
+            document.querySelector('.chat-panel'),
+            document.getElementById('model-select')
+        ];
         
-        if (confirmQuotaModal && quotaExceededModal) {
-            confirmQuotaModal.addEventListener('click', function() {
-                quotaExceededModal.style.display = 'none';
-            });
-        }
-    });
-
-    // Control initial loading screen
-    function handleInitialLoading() {
-        const loadingScreen = document.getElementById('initial-loading-screen');
-        
-        // Check if key elements are loaded
-        function checkIfAppIsReady() {
-            // Different minimum loading times for desktop vs mobile
-            const isMobile = window.innerWidth <= 768;
-            const minLoadTime = isMobile ? 3000 : 1500; // 3 seconds for mobile, 1.5 for desktop
+        // Wait for minimum load time and check if elements are rendered
+        setTimeout(() => {
+            const allElementsLoaded = elementsToCheck.every(el => el !== null);
             
-            const startTime = Date.now();
-            
-            // Elements to check if they're loaded/rendered
-            const elementsToCheck = [
-                document.querySelector('.sidebar'),
-                document.querySelector('.chat-panel'),
-                document.getElementById('model-select')
-            ];
-            
-            // Wait for minimum load time and check if elements are rendered
-            setTimeout(() => {
-                const allElementsLoaded = elementsToCheck.every(el => el !== null);
+            if (allElementsLoaded) {
+                // Add loaded class to trigger fade-out animation
+                loadingScreen.classList.add('loaded');
                 
-                if (allElementsLoaded) {
-                    // Add loaded class to trigger fade-out animation
-                    loadingScreen.classList.add('loaded');
-                    
-                    // Remove from DOM after animation completes
-                    setTimeout(() => {
-                        loadingScreen.style.display = 'none';
-                    }, 500); // Match transition duration from CSS
-                } else {
-                    // If not all elements are loaded, check again in 300ms
-                    setTimeout(checkIfAppIsReady, 300);
-                }
-            }, minLoadTime);
-        }
-        
-        // Start checking if app is ready
-        checkIfAppIsReady();
+                // Remove from DOM after animation completes
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 500); // Match transition duration from CSS
+            } else {
+                // If not all elements are loaded, check again in 300ms
+                setTimeout(checkIfAppIsReady, 300);
+            }
+        }, minLoadTime);
     }
-
-    // Function to re-index knowledge files for a bot
-    async function reindexKnowledgeFiles(botId) {
-        try {
-            // Show progress container
-            const progressContainer = document.getElementById('indexing-progress-container');
-            const progressBar = document.getElementById('indexing-progress-bar');
-            const statusElement = document.getElementById('indexing-status');
-            const filesProcessedElement = document.getElementById('files-processed');
-            const totalFilesElement = document.getElementById('total-files');
-            const chunksProcessedElement = document.getElementById('chunks-processed');
-            
-            if (!progressContainer || !progressBar || !statusElement) {
-                showNotification('Progress elements not found', 'error');
-                return;
-            }
-            
-            // Initialize progress display
-            progressContainer.style.display = 'block';
-            progressBar.style.width = '0%';
-            statusElement.textContent = 'Starting indexing...';
-            
-            // Start re-indexing process
-            const startResponse = await fetch(`/api/bots/${botId}/indexing/reindex`, {
-                method: 'POST'
-            });
-            
-            if (!startResponse.ok) {
-                const errorData = await startResponse.json();
-                throw new Error(errorData.message || 'Failed to start re-indexing');
-            }
-            
-            const startData = await startResponse.json();
-            showNotification('Re-indexing started', 'info');
-            
-            // Poll for progress updates
-            const pollInterval = setInterval(async () => {
-                try {
-                    const progressResponse = await fetch(`/api/bots/${botId}/indexing/progress`);
-                    const progressData = await progressResponse.json();
-                    
-                    // Update progress display
-                    if (progressData.status === 'processing') {
-                        const percent = Math.round(progressData.progress * 100);
-                        progressBar.style.width = `${percent}%`;
-                        statusElement.textContent = `Processing: ${progressData.current_file || 'Initializing...'}`;
-                        
-                        // Update file counts
-                        if (filesProcessedElement && totalFilesElement) {
-                            filesProcessedElement.textContent = progressData.files_processed || 0;
-                            totalFilesElement.textContent = progressData.total_files || 0;
-                        }
-                        
-                        // Update chunk count
-                        if (chunksProcessedElement) {
-                            chunksProcessedElement.textContent = progressData.chunks_processed || 0;
-                        }
-                    } else if (progressData.status === 'complete') {
-                        // Indexing complete
-                        clearInterval(pollInterval);
-                        progressBar.style.width = '100%';
-                        statusElement.textContent = 'Indexing complete!';
-                        
-                        // Show completion message with stats
-                        let completionMessage = 'Indexing complete';
-                        if (progressData.processing_time) {
-                            completionMessage += ` in ${progressData.processing_time.toFixed(1)}s`;
-                        }
-                        if (progressData.speed) {
-                            completionMessage += ` (${progressData.speed})`;
-                        }
-                        
-                        showNotification(completionMessage, 'success');
-                        
-                        // Hide progress container after a delay
-                        setTimeout(() => {
-                            progressContainer.style.display = 'none';
-                        }, 5000);
-                    } else if (progressData.status === 'error') {
-                        // Error during indexing
-                        clearInterval(pollInterval);
-                        statusElement.textContent = `Error: ${progressData.message || 'Unknown error'}`;
-                        progressContainer.classList.add('error');
-                        showNotification(`Indexing failed: ${progressData.message || 'Unknown error'}`, 'error');
-                    }
-                } catch (pollError) {
-                    console.error('Error polling for progress:', pollError);
-                }
-            }, 1000); // Poll every second
-            
-        } catch (error) {
-            console.error('Error re-indexing knowledge files:', error);
-            showNotification(`Re-indexing failed: ${error.message}`, 'error');
-            
-            // Hide progress container
-            const progressContainer = document.getElementById('indexing-progress-container');
-            if (progressContainer) {
-                progressContainer.style.display = 'none';
-            }
-        }
-    }
+    
+    // Start checking if app is ready
+    checkIfAppIsReady();
+}
