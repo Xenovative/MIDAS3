@@ -2772,6 +2772,133 @@ def delete_knowledge_file(bot_id, filename):
             'message': str(e)
         }), 500
         
+def reindex_bot_knowledge(bot):
+    """Re-index all knowledge files for a bot"""
+    try:
+        app.logger.info(f"[RAG] Re-indexing knowledge files for bot {bot.id}")
+        kb_dir = bot.get_knowledge_base_path()
+        collection_name = f"bot_{bot.id}"
+        
+        # Initialize progress tracking
+        total_files = len(bot.knowledge_files)
+        app.indexing_progress[bot.id] = {
+            'status': 'processing',
+            'progress': 0.0,
+            'current_file': '',
+            'files_processed': 0,
+            'total_files': total_files,
+            'chunks_processed': 0,
+            'total_chunks': 0
+        }
+        
+        # Process each file
+        indexed_files = []
+        total_chunks = 0
+        start_time = time.time()
+        
+        for i, filename in enumerate(bot.knowledge_files):
+            try:
+                # Update progress
+                app.indexing_progress[bot.id]['current_file'] = filename
+                app.indexing_progress[bot.id]['files_processed'] = i
+                app.indexing_progress[bot.id]['progress'] = i / total_files if total_files > 0 else 0
+                
+                file_path = os.path.join(kb_dir, secure_filename(filename))
+                if not os.path.exists(file_path):
+                    app.logger.warning(f"[RAG] File {filename} not found at {file_path}")
+                    continue
+                    
+                # Select appropriate loader
+                if filename.endswith('.pdf'):
+                    loader = PyPDFLoader(file_path)
+                elif filename.endswith('.xml'):
+                    loader = UnstructuredXMLLoader(file_path)
+                elif filename.endswith('.md'):
+                    loader = UnstructuredMarkdownLoader(file_path)
+                else:  # .txt
+                    loader = TextLoader(file_path)
+                
+                # Load and process documents
+                app.logger.info(f"[RAG] Loading {filename} for re-indexing")
+                documents = loader.load()
+                
+                # Add metadata
+                for doc in documents:
+                    if not hasattr(doc, 'metadata') or not doc.metadata:
+                        doc.metadata = {}
+                    doc.metadata['source'] = file_path
+                    doc.metadata['filename'] = filename
+                    doc.metadata['bot_id'] = bot.id
+                
+                # Split documents
+                text_splitter = rag.RecursiveCharacterTextSplitter(
+                    chunk_size=rag.CHUNK_SIZE, 
+                    chunk_overlap=rag.CHUNK_OVERLAP
+                )
+                split_docs = text_splitter.split_documents(documents)
+                chunk_count = len(split_docs)
+                app.logger.info(f"[RAG] Split {filename} into {chunk_count} chunks")
+                
+                # Update progress with chunk information
+                total_chunks += chunk_count
+                app.indexing_progress[bot.id]['total_chunks'] = total_chunks
+                
+                # Add to vector store in batches to show progress
+                vectorstore = rag.Chroma(
+                    persist_directory=rag.CHROMA_PERSIST_DIR, 
+                    embedding_function=rag.ollama_ef, 
+                    collection_name=collection_name
+                )
+                
+                # Process in batches of 100 chunks
+                batch_size = 100
+                for j in range(0, len(split_docs), batch_size):
+                    batch = split_docs[j:j+batch_size]
+                    vectorstore.add_documents(batch)
+                    
+                    # Update progress after each batch
+                    chunks_processed = j + len(batch)
+                    app.indexing_progress[bot.id]['chunks_processed'] = app.indexing_progress[bot.id].get('chunks_processed', 0) + len(batch)
+                    
+                    # Calculate overall progress (files + current chunks)
+                    if total_chunks > 0:
+                        chunk_progress = chunks_processed / chunk_count
+                        file_progress = i / total_files
+                        # Weight: 20% for file progress, 80% for chunk progress within current file
+                        combined_progress = (file_progress * 0.2) + (chunk_progress * 0.8 / total_files)
+                        app.indexing_progress[bot.id]['progress'] = combined_progress
+                
+                vectorstore.persist()
+                
+                indexed_files.append(filename)
+                app.logger.info(f"[RAG] Successfully re-indexed {filename}")
+            except Exception as e:
+                app.logger.error(f"[RAG] Error re-indexing {filename}: {str(e)}")
+        
+        # Mark processing as complete
+        processing_time = time.time() - start_time
+        app.indexing_progress[bot.id] = {
+            'status': 'complete',
+            'progress': 1.0,
+            'files_processed': len(indexed_files),
+            'total_files': total_files,
+            'chunks_processed': total_chunks,
+            'total_chunks': total_chunks,
+            'processing_time': processing_time
+        }
+        
+        app.logger.info(f"[RAG] Re-indexing complete for bot {bot.id}. Processed {total_chunks} chunks in {processing_time:.2f}s")
+        return indexed_files
+    except Exception as e:
+        app.logger.error(f"[RAG] Error in re-indexing: {str(e)}")
+        
+        # Update progress with error
+        if hasattr(app, 'indexing_progress') and bot.id in app.indexing_progress:
+            app.indexing_progress[bot.id]['status'] = 'error'
+            app.indexing_progress[bot.id]['error'] = str(e)
+        
+        return []
+
 @app.route('/api/bots/<bot_id>/knowledge/reindex', methods=['POST'])
 @login_required
 @admin_required

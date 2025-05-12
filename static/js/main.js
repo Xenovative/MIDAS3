@@ -3846,20 +3846,40 @@ async function reindexKnowledgeFiles(botId) {
                 progressText.textContent = `Re-indexing: ${Math.round(percent)}%`;
                 
                 // Update processing details
+                let detailsHtml = '';
+                
                 if (data.current_file) {
-                    processingDetails.innerHTML = `
-                        <p><strong>Current file:</strong> ${data.current_file}</p>
-                        <p><strong>Chunks processed:</strong> ${data.chunks_processed}</p>
-                    `;
+                    detailsHtml += `<p><strong>Current file:</strong> ${data.current_file}</p>`;
                 }
+                
+                if (data.files_processed !== undefined) {
+                    detailsHtml += `<p><strong>Files processed:</strong> ${data.files_processed}/${data.total_files || 0}</p>`;
+                }
+                
+                if (data.chunks_processed !== undefined) {
+                    detailsHtml += `<p><strong>Chunks processed:</strong> ${data.chunks_processed}/${data.total_chunks || 0}</p>`;
+                }
+                
+                processingDetails.innerHTML = detailsHtml || '<p>Processing...</p>';
             } else if (data.status === 'complete') {
                 // Processing complete
                 progressBar.style.width = '100%';
                 progressText.textContent = 'Re-indexing complete!';
-                processingDetails.innerHTML = `
-                    <p><strong>Files processed:</strong> ${data.files_processed}</p>
-                    <p><strong>Total chunks:</strong> ${data.total_chunks}</p>
-                `;
+                
+                let summaryHtml = '';
+                if (data.files_processed !== undefined) {
+                    summaryHtml += `<p><strong>Files processed:</strong> ${data.files_processed}</p>`;
+                }
+                
+                if (data.total_chunks !== undefined) {
+                    summaryHtml += `<p><strong>Total chunks:</strong> ${data.total_chunks}</p>`;
+                }
+                
+                if (data.processing_time !== undefined) {
+                    summaryHtml += `<p><strong>Processing time:</strong> ${data.processing_time.toFixed(1)}s</p>`;
+                }
+                
+                processingDetails.innerHTML = summaryHtml || '<p>Processing complete!</p>';
                 
                 // Close the event source
                 eventSource.close();
@@ -3870,17 +3890,17 @@ async function reindexKnowledgeFiles(botId) {
                 // Hide progress after a delay
                 setTimeout(() => {
                     progressContainer.style.display = 'none';
-                }, 3000);
+                }, 5000);
             } else if (data.status === 'error') {
                 // Error during processing
                 progressText.textContent = 'Error during re-indexing';
-                processingDetails.innerHTML = `<p class="error">${data.message}</p>`;
+                processingDetails.innerHTML = `<p class="error">${data.error || data.message || 'Unknown error'}</p>`;
                 
                 // Close the event source
                 eventSource.close();
                 
                 // Show error notification
-                showNotification('Error', data.message, 'error');
+                showNotification('Error', data.error || data.message || 'Unknown error', 'error');
             }
         };
         
