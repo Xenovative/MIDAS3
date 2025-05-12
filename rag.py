@@ -12,6 +12,10 @@ DEFAULT_COLLECTION_NAME = "rag_documents"
 CHUNK_SIZE = 2000  # Increased from 1000 for more context per chunk
 CHUNK_OVERLAP = 400  # Increased overlap to maintain context between chunks
 
+# Performance optimization settings
+PARALLEL_PROCESSING = True
+BATCH_SIZE = 500
+
 # Function to get conversation-specific collection name
 def get_conversation_collection_name(conversation_id):
     """Generate a collection name for a specific conversation"""
@@ -205,72 +209,55 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         return False
 
 def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=15):
-    """Retrieves relevant document chunks for a given query using LangChain Chroma.
-    
-    Args:
-        query: The query to search for
-        collection_name: Name of the collection to search in
-        conversation_id: If provided, will search in a conversation-specific collection
-        n_results: Number of results to return
-        
-    Returns:
-        str: The retrieved context as a string
-    """
+    """Retrieve relevant document chunks for a given query with optimized performance"""
     try:
-        # If conversation_id is provided, use a conversation-specific collection
+        # Use conversation-specific collection if provided
         if conversation_id:
             collection_name = get_conversation_collection_name(conversation_id)
-            
-        print(f"Loading persisted Chroma vector store from: {CHROMA_PERSIST_DIR}, collection: {collection_name}")
-        # Load the persisted vector store
+        
+        # Check if the collection exists
+        if not collection_exists(collection_name):
+            return ""
+        
+        # Initialize Chroma with the collection
         vectorstore = Chroma(
-            persist_directory=CHROMA_PERSIST_DIR, 
-            embedding_function=ollama_ef, 
+            persist_directory=CHROMA_PERSIST_DIR,
+            embedding_function=ollama_ef,
             collection_name=collection_name
         )
         
-        retriever = vectorstore.as_retriever(search_kwargs={"k": n_results})
+        # Use MMR retrieval for better diversity of results
+        try:
+            # First try MMR retrieval for better diversity
+            docs = vectorstore.max_marginal_relevance_search(
+                query, 
+                k=n_results,
+                fetch_k=n_results*2,  # Fetch more candidates for better selection
+                lambda_mult=0.7  # Balance between relevance and diversity
+            )
+        except Exception as mmr_error:
+            # Fall back to regular similarity search if MMR fails
+            print(f"MMR search failed, falling back to similarity search: {str(mmr_error)}")
+            docs = vectorstore.similarity_search(query, k=n_results)
         
-        print(f"Querying vector store for: '{query[:50]}...'")
-        # Use the retriever to get relevant documents
-        results = retriever.get_relevant_documents(query)
-        
-        print(f"Retrieved {len(results)} context chunks from knowledge base")
-        
-        # Detailed logging of each retrieved chunk
-        for i, doc in enumerate(results):
-            source = doc.metadata.get('source', 'unknown source')
-            page = doc.metadata.get('page', 'unknown page')
-            print(f"\nContext chunk #{i+1}:")
-            print(f"  Source: {source}")
-            print(f"  Page/Section: {page}")
-            print(f"  Similarity score: {doc.metadata.get('score', 'N/A')}")
-            print(f"  Content snippet: {doc.page_content[:100]}...")
-        
-        # Enhanced context handling with metadata
+        # Format context with source grouping for better context
         context_parts = []
-        for i, doc in enumerate(results):
-            # Extract metadata for better context
-            source = doc.metadata.get('source', 'unknown')
-            filename = doc.metadata.get('filename', os.path.basename(source) if isinstance(source, str) else 'unknown')
-            
-            # Format the context with source information
-            context_part = f"--- Document {i+1}: {filename} ---\n{doc.page_content}\n"
-            context_parts.append(context_part)
-            
-        # Join all context parts with clear separators
-        context = "\n\n".join(context_parts)
+        sources = {}
+        for doc in docs:
+            filename = doc.metadata.get('filename', 'Unknown')
+            if filename not in sources:
+                sources[filename] = []
+            sources[filename].append(doc.page_content)
         
-        if context:
-            print(f"Total context length: {len(context)} characters")
-            print(f"Retrieved {len(results)} document chunks")
-        else:
-            print("No relevant context found in knowledge base")
-            
+        for filename, contents in sources.items():
+            source_context = f"Source: {filename}\n\n" + "\n\n".join(contents)
+            context_parts.append(source_context)
+        
+        context = "\n\n---\n\n".join(context_parts)
+        print(f"Retrieved {len(docs)} document chunks from {len(sources)} sources")
         return context
     except Exception as e:
-        print(f"Error retrieving context from Chroma vector store: {e}")
-        print("Please ensure the vector store has been set up correctly.")
+        print(f"Error retrieving context: {str(e)}")
         return ""
 
 # --- Example Usage (Optional) ---

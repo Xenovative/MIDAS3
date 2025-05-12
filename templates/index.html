@@ -15,6 +15,33 @@
     <link rel="stylesheet" href="/static/css/auth.css">
     <link rel="stylesheet" href="/static/css/processing-progress.css">
     <style>
+        /* Progress bar styles */
+        .progress-bar-container {
+            width: 100%;
+            height: 20px;
+            background-color: #f0f0f0;
+            border-radius: 10px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background-color: #4CAF50;
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+        
+        .progress-status {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .progress-details {
+            font-size: 0.9em;
+            color: #666;
+        }
+        
         /* Global styles */
         * {
             box-sizing: border-box;
@@ -4208,7 +4235,7 @@
                                                     <label for="bot-max-tokens">Max Tokens</label>
                                                     <span class="tooltip-text">Maximum number of tokens the model can generate in a single response. Higher values allow longer responses, while lower values keep responses concise.</span>
                                                 </div>
-                                                <input type="number" id="bot-max-tokens" min="100" max="4096" value="2048">
+                                                <input type="number" id="bot-max-tokens" min="100" max="8192" value="2048">
                                             </div>
                                         </div>
                                     </div>
@@ -4217,6 +4244,20 @@
                                 <div class="form-actions">
                                     <button type="submit" id="save-bot-button" class="primary-button">Save Bot</button>
                                     <button type="button" id="cancel-bot-edit" class="secondary-button">Cancel</button>
+                                    <button type="button" id="reindex-bot-knowledge" class="secondary-button">Re-index Files</button>
+                                </div>
+                                
+                                <!-- Indexing Progress Container -->
+                                <div id="indexing-progress-container" style="display: none; margin-top: 20px;">
+                                    <h4>Indexing Progress</h4>
+                                    <div class="progress-bar-container">
+                                        <div id="indexing-progress-bar" class="progress-bar" style="width: 0%;"></div>
+                                    </div>
+                                    <div id="indexing-status" class="progress-status">Preparing...</div>
+                                    <div id="indexing-details" class="progress-details">
+                                        <span id="files-processed">0</span> of <span id="total-files">0</span> files processed
+                                        (<span id="chunks-processed">0</span> chunks)
+                                    </div>
                                 </div>
                             </div>
                         </form>
