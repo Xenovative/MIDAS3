@@ -263,7 +263,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=30):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=500):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
@@ -288,14 +288,35 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             collection_name=collection_name
         )
         
+        # Get total document count to determine retrieval strategy
+        total_docs = vectorstore._collection.count()
+        print(f"Total documents in collection: {total_docs}")
+        
+        # Determine how many documents to retrieve based on collection size
+        # For all collections, try to retrieve a substantial portion of documents
+        if total_docs < 5000:
+            # For small collections, retrieve almost everything
+            fetch_k = min(total_docs, 4000)  # Retrieve up to 4000 docs for small collections
+            k_value = min(total_docs, n_results)
+        elif total_docs < 20000:
+            # For medium collections, retrieve a large portion
+            fetch_k = min(int(total_docs * 0.7), 18000)  # Up to 70% of docs, max 18000
+            k_value = min(int(total_docs * 0.3), n_results)  # Up to 30% of docs, max n_results
+        else:
+            # For very large collections, still retrieve a significant amount
+            fetch_k = 18000  # Fixed large value
+            k_value = n_results
+        
+        print(f"Retrieval strategy: fetch_k={fetch_k}, k={k_value}")
+        
         # For Chinese text, we need to be more lenient with similarity scores
         # Use MMR retriever to maximize relevance and diversity
         retriever = vectorstore.as_retriever(
             search_type="mmr",  # Maximum Marginal Relevance - balances relevance with diversity
             search_kwargs={
-                "k": n_results,
-                "fetch_k": 150,  # Fetch more candidates to filter from
-                "lambda_mult": 0.8  # Higher values prioritize relevance over diversity
+                "k": k_value,
+                "fetch_k": fetch_k,  # Fetch more candidates to filter from
+                "lambda_mult": 0.7  # Lower values (0.5-0.7) prioritize diversity over pure relevance
             }
         )
         
@@ -467,13 +488,30 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             # Format each chunk with rich metadata and content
             formatted_context += f"\n\n{header}\n{doc.page_content}\n"
         
-        # Add a summary of what was retrieved
+        # Add a comprehensive summary of what was retrieved
         if results:
-            context_summary = f"\n\nRetrieved {len(results)} relevant context chunks from knowledge base "
+            # Calculate the percentage of the knowledge base that was retrieved
+            if 'total_docs' in locals():
+                retrieval_percentage = (len(results) / total_docs) * 100 if total_docs > 0 else 0
+                context_summary = f"\n\nRetrieved {len(results)} relevant context chunks ({retrieval_percentage:.1f}% of knowledge base) "
+            else:
+                context_summary = f"\n\nRetrieved {len(results)} relevant context chunks from knowledge base "
+                
+            # Add query information
             if is_chinese:
                 context_summary += f"for Chinese query: '{query}'"
             else:
                 context_summary += f"for query: '{query}'"
+                
+            # Add document coverage information
+            sources = set()
+            for doc, source, _ in scored_results:
+                if source != 'Unknown source':
+                    sources.add(source)
+            
+            if sources:
+                context_summary += f"\nSources consulted: {len(sources)} documents"
+                
             formatted_context = context_summary + formatted_context
         
         # Print summary for logging
