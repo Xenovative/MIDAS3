@@ -2356,9 +2356,8 @@ def generate_image():
             # Find the text prompt node and update it
             for node_id, node_data in comfyui_payload.items():
                 if node_data.get('class_type') == 'CLIPTextEncode':
-                    # Update the text prompt with a unique identifier to prevent caching
-                    # The identifier is added as a comment that won't affect generation
-                    node_data['inputs']['text'] = f"{prompt} \\n<!-- request_id: {request_id} timestamp: {timestamp} -->"
+                    # Just use the prompt as-is without adding request ID to avoid token length issues
+                    node_data['inputs']['text'] = prompt
                 
                 # Update resolution if there's a resolution node
                 if 'width' in node_data.get('inputs', {}) and 'height' in node_data.get('inputs', {}):
