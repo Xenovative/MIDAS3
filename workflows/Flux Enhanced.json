@@ -1,7 +1,18 @@
 {
+  "5": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Empty Latent Image"
+    }
+  },
   "6": {
     "inputs": {
-      "text": "",
+      "text": "A sexy taiwanese girl with nautral breasts completely naked, wearing fishnet stockings, standing on the street behind her is a huge red graffiti with the word XENOVATIVE written on it and a skull symbol,",
       "clip": [
         "11",
         0
@@ -9,7 +20,7 @@
     },
     "class_type": "CLIPTextEncode",
     "_meta": {
-      "title": "CLIP Text Encode (Positive Prompt)"
+      "title": "CLIP Text Encode (Prompt)"
     }
   },
   "8": {
@@ -30,7 +41,7 @@
   },
   "9": {
     "inputs": {
-      "filename_prefix": "MIDAS_Flux_Enhanced",
+      "filename_prefix": "MIDAS_Flux_Enchanced",
       "images": [
         "8",
         0
@@ -81,7 +92,7 @@
         0
       ],
       "latent_image": [
-        "27",
+        "5",
         0
       ]
     },
@@ -102,10 +113,10 @@
   "17": {
     "inputs": {
       "scheduler": "simple",
-      "steps": 30,
+      "steps": 20,
       "denoise": 1,
       "model": [
-        "30",
+        "26",
         0
       ]
     },
@@ -117,11 +128,11 @@
   "22": {
     "inputs": {
       "model": [
-        "30",
+        "26",
         0
       ],
       "conditioning": [
-        "26",
+        "6",
         0
       ]
     },
@@ -132,7 +143,7 @@
   },
   "25": {
     "inputs": {
-      "noise_seed": 820486736901774
+      "noise_seed": 746360343681964
     },
     "class_type": "RandomNoise",
     "_meta": {
@@ -141,31 +152,7 @@
   },
   "26": {
     "inputs": {
-      "guidance": 2.9000000000000004,
-      "conditioning": [
-        "6",
-        0
-      ]
-    },
-    "class_type": "FluxGuidance",
-    "_meta": {
-      "title": "FluxGuidance"
-    }
-  },
-  "27": {
-    "inputs": {
-      "width": 768,
-      "height": 1024,
-      "batch_size": 1
-    },
-    "class_type": "EmptySD3LatentImage",
-    "_meta": {
-      "title": "EmptySD3LatentImage"
-    }
-  },
-  "30": {
-    "inputs": {
-      "unet_name": "jibMixFlux_v8AccentueightNow.gguf"
+      "unet_name": "jibMixFlux_v8AccentueightNSFW.gguf"
     },
     "class_type": "UnetLoaderGGUF",
     "_meta": {
