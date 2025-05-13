@@ -29,6 +29,7 @@ let eventSource = null;
 let messageTracker = new Set(); // Track message IDs to prevent duplicates
 let currentAttachmentFilename = null; // Track attached file for the current message draft
 let isNewConversation = false; // NEW GLOBAL VARIABLE
+let eventListenersAdded = false; // Flag to prevent duplicate event listeners
 
 // Global variables for preferences management
 let userPreferences = {};
@@ -947,6 +948,12 @@ function updateChatInfo(title, model) {
 function addEventListeners() {
     console.log('Adding event listeners to elements:', { sendButton, messageInput });
     
+    // Check if event listeners were already added
+    if (eventListenersAdded) {
+        console.log('Event listeners already added, skipping to prevent duplicates');
+        return;
+    }
+    
     // Send button click event
     if (sendButton) {
         sendButton.addEventListener('click', function(e) {
@@ -1005,6 +1012,10 @@ function addEventListeners() {
             }
         });
     }
+    
+    // Set flag to true to indicate that event listeners have been added
+    eventListenersAdded = true;
+    console.log('All event listeners added successfully');
 }
 
 // Delete the current conversation
