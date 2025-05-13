@@ -2436,7 +2436,10 @@ def generate_image():
             outputs = history_data[result.get('prompt_id')]['outputs']
             image_data = None
             image_filename = None
-
+            
+            # Log the full history data to see what's in it
+            app.logger.info(f"ComfyUI history data: {json.dumps(history_data, indent=2)}")
+            
             # Look through all outputs to find image data
             for node_id, node_output in outputs.items():
                 # Check if this is an image output
@@ -2444,6 +2447,16 @@ def generate_image():
                     # Get the first image
                     image_filename = node_output['images'][0]['filename']
                     image_data = node_output['images'][0]
+                    
+                    # Log all available image data
+                    app.logger.info(f"Found image in output: {json.dumps(image_data, indent=2)}")
+                    
+                    # Check if there's a subfolder or full path in the image data
+                    if 'subfolder' in image_data:
+                        app.logger.info(f"Image subfolder: {image_data['subfolder']}")
+                    if 'path' in image_data:
+                        app.logger.info(f"Image full path: {image_data['path']}")
+                    
                     break
 
             if image_filename:
@@ -2469,10 +2482,32 @@ def generate_image():
                     os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'output'),
                     os.path.join('/root/MIDAS3', 'MIDAS_standalone', 'ComfyUI', 'Output'),
                     os.path.join('/root/MIDAS3', 'MIDAS_standalone', 'ComfyUI', 'output'),
+                    os.path.join('/root/MIDAS3', 'ComfyUI', 'Output'),
+                    os.path.join('/root/MIDAS3', 'ComfyUI', 'output'),
+                    os.path.join('/root/ComfyUI', 'Output'),
+                    os.path.join('/root/ComfyUI', 'output'),
                     'ComfyUI/Output',
                     'Output',
+                    '/tmp/ComfyUI/Output',
+                    '/tmp/ComfyUI/output',
+                    '/tmp/Output',
+                    '/tmp/output',
                     '.',
                 ]
+                
+                # If we have subfolder info from the image data, add that path too
+                if image_data and 'subfolder' in image_data:
+                    subfolder = image_data['subfolder']
+                    app.logger.info(f"Adding subfolder path: {subfolder}")
+                    potential_dirs.append(os.path.join('ComfyUI', subfolder))
+                    potential_dirs.append(os.path.join('/root/MIDAS3/ComfyUI', subfolder))
+                    potential_dirs.append(os.path.join('/root/ComfyUI', subfolder))
+                    
+                # If we have full path info from the image data, add that too
+                if image_data and 'path' in image_data:
+                    full_path = os.path.dirname(image_data['path'])
+                    app.logger.info(f"Adding full path: {full_path}")
+                    potential_dirs.append(full_path)
                 
                 # Log directories we're checking
                 app.logger.info(f"Checking the following directories for images: {potential_dirs}")
@@ -2574,6 +2609,46 @@ def generate_image():
                 most_recent_image = None
                 most_recent_time = 0
                 
+                # Try to directly access the image using the ComfyUI API
+                if image_data and 'filename' in image_data:
+                    try:
+                        # Try to get the image directly from ComfyUI
+                        image_url = f"{comfy_api_url}/view?filename={image_data['filename']}"
+                        if 'subfolder' in image_data and image_data['subfolder']:
+                            image_url += f"&subfolder={image_data['subfolder']}"
+                        
+                        app.logger.info(f"Trying to get image directly from ComfyUI API: {image_url}")
+                        img_resp = requests.get(image_url, timeout=10)
+                        
+                        if img_resp.status_code == 200 and img_resp.content:
+                            app.logger.info(f"Successfully retrieved image from ComfyUI API")
+                            img_b64 = base64.b64encode(img_resp.content).decode('utf-8')
+                            
+                            # Save message to conversation history if conversation_id is provided
+                            if conversation_id:
+                                try:
+                                    message_id = db.add_message(
+                                        conversation_id=conversation_id,
+                                        role='assistant',
+                                        content=f'',
+                                        thinking=None,
+                                        images=[img_b64],  
+                                        attachment_filename=image_data['filename']
+                                    )
+                                except Exception as db_error:
+                                    app.logger.error(f"Error saving image message to database: {str(db_error)}")
+                            
+                            return jsonify({
+                                'status': 'success', 
+                                'image_base64': img_b64, 
+                                'filename': image_data['filename'],
+                                'workflow': workflow,
+                                'seed': seed
+                            })
+                    except Exception as e:
+                        app.logger.error(f"Error getting image from ComfyUI API: {str(e)}")
+                
+                # Fallback to searching for recent files
                 for directory in potential_dirs:
                     if os.path.exists(directory):
                         app.logger.info(f"Looking for recent images in {directory}")
