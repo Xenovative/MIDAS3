@@ -2444,42 +2444,55 @@ def generate_image():
                     image_data = node_output['images'][0]
                     break
 
-            if image_filename:
-                # Construct path to the image in ComfyUI's output directory
-                # Convert forward slashes to backslashes for Windows
-                normalized_output_dir = comfy_output_dir.replace('/', os.path.sep)
-                image_path = os.path.join(normalized_output_dir, image_filename)
-                print(f"Looking for image at: {image_path}")
-                app.logger.info(f"Looking for image at: {image_path}")
-                
-                # Try multiple possible paths if the file doesn't exist
-                possible_paths = [
-                    # Original path
-                    image_path,
-                    # Try with absolute path from app root
-                    os.path.join(os.getcwd(), normalized_output_dir, image_filename),
-                    # Try with Output capitalized
-                    os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'Output', image_filename),
-                    # Try with output lowercase
-                    os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'output', image_filename),
-                    # Try with ComfyUI/output directly
-                    os.path.join('ComfyUI', 'Output', image_filename),
-                    # Try with just the filename in the current directory
-                    os.path.join('Output', image_filename),
-                    # Try with just the filename
-                    image_filename
-                ]
-                
-                # Log all paths we're checking
-                app.logger.info(f"Checking the following paths for image: {possible_paths}")
-                
-                # Try each path
-                for path in possible_paths:
-                    if os.path.exists(path):
-                        image_path = path
-                        print(f"Found image at: {image_path}")
-                        app.logger.info(f"Found image at: {image_path}")
-                        break
+            # Find the latest image in the output directories, regardless of filename
+            prompt_id = result.get('prompt_id')
+            app.logger.info(f"Searching for most recent image for prompt_id: {prompt_id}")
+            
+            # Define possible output directories to check
+            output_dirs = [
+                os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'Output'),
+                os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'output'),
+                'MIDAS_standalone/ComfyUI/Output',
+                'MIDAS_standalone/ComfyUI/output',
+                'ComfyUI/Output',
+                'ComfyUI/output',
+                'Output',
+                'output'
+            ]
+            
+            # Convert paths to OS-specific format
+            output_dirs = [d.replace('/', os.path.sep) for d in output_dirs]
+            app.logger.info(f"Checking directories: {output_dirs}")
+            
+            # Find the most recent image file
+            image_path = None
+            newest_time = 0
+            
+            for directory in output_dirs:
+                if os.path.exists(directory) and os.path.isdir(directory):
+                    app.logger.info(f"Checking directory: {directory}")
+                    try:
+                        # List all files in the directory
+                        files = os.listdir(directory)
+                        for file in files:
+                            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                                file_path = os.path.join(directory, file)
+                                file_time = os.path.getmtime(file_path)
+                                
+                                # If this is the newest file we've found so far
+                                if file_time > newest_time:
+                                    newest_time = file_time
+                                    image_path = file_path
+                                    app.logger.info(f"Found newer image: {image_path} (modified: {file_time})")
+                    except Exception as e:
+                        app.logger.error(f"Error checking directory {directory}: {str(e)}")
+                        continue
+            
+            # If we found an image
+            if image_path:
+                app.logger.info(f"Using most recent image: {image_path}")
+                # Update the image_filename to match the actual file we found
+                image_filename = os.path.basename(image_path)
                 # Make sure the file exists
                 if os.path.exists(image_path):
                     print(f"Found image at: {image_path}")  # Debug output
