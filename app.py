@@ -674,6 +674,10 @@ def generate():
         use_rag = False
         retrieved_context = ""
         
+        # Log the full request data for debugging
+        app.logger.info(f"[RAG] Request data: bot_id={data.get('bot_id')}, conversation_id={conversation_id}")
+        app.logger.info(f"[RAG] Full request data: {data}")
+        
         # Check if bot is selected either via bot_id parameter or model parameter
         bot_id = data.get('bot_id')
         
@@ -708,7 +712,7 @@ def generate():
         elif knowledge_files:
             app.logger.info(f"[RAG] Knowledge files found in request: {knowledge_files}, enabling RAG")
             rag_enabled = True
-        # Then check if the conversation is associated with a bot (model field starts with 'bot:')
+        # Check if conversation is associated with a bot (model field starts with 'bot:')
         elif conversation_id and not secret:
             try:
                 conversation = db.get_conversation(conversation_id)
@@ -718,6 +722,12 @@ def generate():
                     bot_id = extracted_bot_id  # Set the bot_id for later use
                     app.logger.info(f"[RAG] Conversation {conversation_id} is associated with bot {bot_id}, enabling RAG")
                     rag_enabled = True
+                    
+                    # Add the bot_id to the request data for future processing
+                    # This ensures the bot's system prompt and base model will be used
+                    if 'bot_id' not in data:
+                        data['bot_id'] = bot_id
+                        app.logger.info(f"[RAG] Added bot_id {bot_id} to request data from conversation model")
             except Exception as e:
                 app.logger.error(f"[RAG] Error checking conversation model: {str(e)}")
                 # Continue with default rag_enabled value
@@ -791,17 +801,21 @@ def generate():
                     conversation = db.get_conversation(conversation_id)
                     app.logger.info(f"[RAG] Conversation data: {conversation}")
                     
-                    # Check if conversation has a model field that starts with 'bot:'
-                    if conversation and 'model' in conversation and conversation['model'].startswith('bot:'):
-                        # Extract bot_id from the model string (format: 'bot:{bot_id}')
-                        bot_id = conversation['model'].split(':', 1)[1]
-                        bot_collection = f"bot_{bot_id}"
-                        app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id} from model field")
-                    elif conversation and 'bot_id' in conversation:
-                        # Fallback to direct bot_id field if it exists
+                    # Check if conversation has a bot_id field
+                    if conversation and 'bot_id' in conversation:
                         bot_id = conversation['bot_id']
                         bot_collection = f"bot_{bot_id}"
                         app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id} from bot_id field")
+                        # Add bot_id to data for future processing
+                        data['bot_id'] = bot_id
+                    # Check if conversation model starts with 'bot:'
+                    elif conversation and 'model' in conversation and conversation['model'].startswith('bot:'):
+                        # Extract bot ID from model string
+                        bot_id = conversation['model'].split(':', 1)[1]
+                        bot_collection = f"bot_{bot_id}"
+                        app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id} from model field")
+                        # Add bot_id to data for future processing
+                        data['bot_id'] = bot_id
                     else:
                         app.logger.info(f"[RAG] No bot associated with conversation {conversation_id}")
                         bot_collection = None
