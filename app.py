@@ -605,6 +605,7 @@ def generate():
         data = request.json
         user_message = data.get('message', '').strip()
         model_name = data.get('model', 'llama3:8b')
+        original_model = model_name  # Store the original model for reference
         system_prompt = data.get('system_prompt', '')
         conversation_id = data.get('conversation_id')
         parameters = data.get('parameters', {})
@@ -693,12 +694,19 @@ def generate():
             except Exception as model_err:
                 app.logger.error(f"[BOT] Error updating conversation model: {str(model_err)}")
         
-        # Only enable RAG if explicitly requested or documents exist in conversation
+        # Check for knowledge files in the request
+        knowledge_files = data.get('knowledge_files', [])
+        
+        # Only enable RAG if explicitly requested, documents exist in conversation, or knowledge files are provided
         rag_enabled = data.get('use_rag', False)  # Default to False to prevent unwanted RAG
         
         # First check if a bot is explicitly selected in the request
         if bot_id:
             app.logger.info(f"[RAG] Bot {bot_id} explicitly selected in request, enabling RAG")
+            rag_enabled = True
+        # Check if knowledge files are provided in the request
+        elif knowledge_files:
+            app.logger.info(f"[RAG] Knowledge files found in request: {knowledge_files}, enabling RAG")
             rag_enabled = True
         # Then check if the conversation is associated with a bot (model field starts with 'bot:')
         elif conversation_id and not secret:
@@ -1207,6 +1215,28 @@ def generate():
         
         # Add system prompt first if it exists
         system_prompt = data.get('system_prompt', '')
+        
+        # If a bot is selected, use the bot's system prompt and base model instead
+        if bot_id:
+            try:
+                # Get the bot
+                bot = Bot.get(bot_id)
+                if bot:
+                    # Use bot's system prompt if available
+                    if bot.system_prompt:
+                        app.logger.info(f"[BOT] Using bot's system prompt for conversation")
+                        system_prompt = bot.system_prompt
+                    
+                    # Use bot's base model if available
+                    if bot.base_model:
+                        app.logger.info(f"[BOT] Using bot's base model {bot.base_model} for conversation")
+                        # Only override the model if the original model was a bot selection
+                        if original_model.startswith('bot:'):
+                            model_name = bot.base_model
+                            app.logger.info(f"[BOT] Overriding model selection from {original_model} to {model_name}")
+            except Exception as e:
+                app.logger.error(f"[BOT] Error getting bot information: {str(e)}")
+                # Continue with the system prompt and model from the request
         
         # If we have RAG context, add it to the system prompt
         if use_rag and retrieved_context:
