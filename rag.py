@@ -404,16 +404,27 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         import re
         from string import punctuation
         
-        # Simple preprocessing function
+        # Enhanced preprocessing function
         def preprocess_query(text, is_chinese=False):
             # For non-Chinese text
             if not is_chinese:
                 # Convert to lowercase
                 text = text.lower()
-                # Remove punctuation
-                text = re.sub(f'[{re.escape(punctuation)}]', ' ', text)
+                # Remove punctuation but preserve important symbols
+                text = re.sub(f'[{re.escape(punctuation.replace("-", "").replace("_", ""))}]', ' ', text)
                 # Remove extra whitespace
                 text = re.sub(r'\s+', ' ', text).strip()
+                
+                # Extract key phrases (2-3 word combinations) to improve matching
+                words = text.split()
+                if len(words) > 1:
+                    # Add bigrams and trigrams to the query
+                    bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words)-1)]
+                    trigrams = [f"{words[i]} {words[i+1]} {words[i+2]}" for i in range(len(words)-2)] if len(words) > 2 else []
+                    
+                    # Combine original query with key phrases
+                    enhanced_query = f"{text} {' '.join(bigrams)} {' '.join(trigrams)}"
+                    return enhanced_query
             return text
         
         # Apply preprocessing
@@ -435,18 +446,46 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             key_terms = [char for char in query if '\u4e00' <= char <= '\u9fff']
             print(f"Extracted {len(key_terms)} Chinese characters: {''.join(key_terms)}")
             
-            # Look for multi-character terms (basic approach)
+            # Look for multi-character terms (enhanced approach)
             # In Chinese, meaningful terms are often 2-4 characters
             multi_char_terms = []
-            for i in range(len(key_terms) - 1):
-                # Add 2-character terms
-                multi_char_terms.append(key_terms[i] + key_terms[i+1])
-                
-                # Add 3-character terms if possible
-                if i < len(key_terms) - 2:
-                    multi_char_terms.append(key_terms[i] + key_terms[i+1] + key_terms[i+2])
             
-            print(f"Generated {len(multi_char_terms)} multi-character terms: {', '.join(multi_char_terms)}")
+            # Add 2-character terms
+            for i in range(len(key_terms) - 1):
+                multi_char_terms.append(key_terms[i] + key_terms[i+1])
+            
+            # Add 3-character terms
+            for i in range(len(key_terms) - 2):
+                multi_char_terms.append(key_terms[i] + key_terms[i+1] + key_terms[i+2])
+            
+            # Add 4-character terms (very common in Chinese)
+            for i in range(len(key_terms) - 3):
+                multi_char_terms.append(key_terms[i] + key_terms[i+1] + key_terms[i+2] + key_terms[i+3])
+                
+            # Add the full query as a term for exact matching
+            multi_char_terms.append(query)
+            
+            # Add sliding window segments of the query
+            window_size = 10
+            if len(query) > window_size:
+                for i in range(len(query) - window_size + 1):
+                    multi_char_terms.append(query[i:i+window_size])
+            
+            print(f"Generated {len(multi_char_terms)} multi-character terms and phrases")
+            
+            # Weight terms by frequency in the query
+            term_weights = {}
+            for term in multi_char_terms:
+                if term in term_weights:
+                    term_weights[term] += 1
+                else:
+                    term_weights[term] = 1
+                    
+            # Sort terms by length (longer terms are more specific)
+            multi_char_terms.sort(key=lambda x: (term_weights[x], len(x)), reverse=True)
+            
+            # Keep the top terms to avoid query explosion
+            multi_char_terms = multi_char_terms[:20]
             
         # Use the retriever to get relevant documents with multiple strategies in parallel
         all_results = []
@@ -456,25 +495,86 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             
             import concurrent.futures
             
-            # Define multiple retrieval strategies as functions
+            # Define multiple retrieval strategies as functions with improved approaches
             def strategy1():
-                print("Strategy 1: Using processed query")
-                return retriever.get_relevant_documents(processed_query)
+                print("Strategy 1: Using processed query with exact matching")
+                # Set search parameters to prioritize exact matches
+                exact_retriever = vectorstore.as_retriever(
+                    search_type="similarity",  # Use similarity for exact matching
+                    search_kwargs={
+                        "k": k_value,
+                        "score_threshold": 0.2,  # Only return somewhat relevant results
+                    }
+                )
+                return exact_retriever.get_relevant_documents(processed_query)
                 
             def strategy2():
                 if is_chinese:
                     print("Strategy 2: Using key terms for Chinese query")
-                    # Join terms with OR for broader matching
-                    term_query = " OR ".join(multi_char_terms[:8])  # Limit to top terms
+                    # Join top terms with OR for broader matching
+                    top_terms = multi_char_terms[:10]  # Use more terms
+                    term_query = " OR ".join(top_terms)
                     return retriever.get_relevant_documents(term_query)
+                else:
+                    # For non-Chinese, use keyword extraction
+                    words = processed_query.split()
+                    # Filter for meaningful words (longer than 3 chars)
+                    keywords = [w for w in words if len(w) > 3]
+                    if keywords:
+                        keyword_query = " OR ".join(keywords)
+                        print(f"Strategy 2: Using extracted keywords: {keyword_query}")
+                        return retriever.get_relevant_documents(keyword_query)
                 return []
                 
             def strategy3():
-                if is_chinese and len(query) > 20:
-                    print("Strategy 3: Using query summary")
-                    # Use first 20 chars as a summary query
-                    return retriever.get_relevant_documents(query[:20])
+                # Use semantic chunking for longer queries
+                if len(query) > 20:
+                    print("Strategy 3: Using query segments")
+                    # Split query into segments
+                    segments = []
+                    if is_chinese:
+                        # For Chinese, use sliding window
+                        window = 15
+                        step = 10
+                        for i in range(0, len(query), step):
+                            if i + window <= len(query):
+                                segments.append(query[i:i+window])
+                    else:
+                        # For non-Chinese, split by sentences
+                        import re
+                        sentences = re.split(r'[.!?]\s*', query)
+                        segments = [s.strip() for s in sentences if len(s.strip()) > 10]
+                    
+                    # Get results for each segment
+                    segment_results = []
+                    for segment in segments[:3]:  # Limit to first 3 segments
+                        print(f"Querying segment: {segment}")
+                        try:
+                            results = retriever.get_relevant_documents(segment)
+                            segment_results.extend(results)
+                        except Exception as e:
+                            print(f"Error retrieving for segment '{segment}': {e}")
+                    
+                    return segment_results
                 return []
+                
+            def strategy4():
+                # Use a hybrid retrieval approach for all queries
+                print("Strategy 4: Using hybrid BM25 + vector approach")
+                try:
+                    # Use a different retriever configuration that balances keyword and semantic matching
+                    hybrid_retriever = vectorstore.as_retriever(
+                        search_type="mmr",
+                        search_kwargs={
+                            "k": k_value,
+                            "fetch_k": fetch_k * 2,  # Get more candidates
+                            "lambda_mult": 0.3,  # Prioritize diversity more
+                        }
+                    )
+                    return hybrid_retriever.get_relevant_documents(query)  # Use original query
+                except Exception as e:
+                    print(f"Error in hybrid retrieval: {e}")
+                    return []
             
             import multiprocessing
             num_cores = multiprocessing.cpu_count()
@@ -489,10 +589,10 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                 # Submit all strategies
                 futures = []
                 futures.append(executor.submit(strategy1))
-                if is_chinese:
-                    futures.append(executor.submit(strategy2))
-                    if len(query) > 20:
-                        futures.append(executor.submit(strategy3))
+                futures.append(executor.submit(strategy2))  # Now works for both Chinese and non-Chinese
+                if len(query) > 20:  # Strategy 3 now works for both Chinese and non-Chinese
+                    futures.append(executor.submit(strategy3))
+                futures.append(executor.submit(strategy4))  # Always use the hybrid approach
                 
                 # Process results as they complete
                 for i, future in enumerate(concurrent.futures.as_completed(futures)):
@@ -501,10 +601,16 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                         all_results.extend(results)
                         print(f"Strategy {i+1} results: {len(results)}")
                         update_progress(operation_id, 
-                                      description=f"Retrieved {len(results)} documents from strategy {i+1}",
-                                      details={"strategy": i+1, "results": len(results)})
+                                       description=f"Retrieved {len(results)} documents from strategy {i+1}",
+                                       details={"strategy": i+1, "results": len(results)})
                     except Exception as e:
                         print(f"Error in retrieval strategy {i+1}: {e}")
+                        
+                # Log the total number of results before deduplication
+                print(f"Total results before deduplication: {len(all_results)}")
+                update_progress(operation_id, 
+                               description=f"Retrieved {len(all_results)} total documents before deduplication",
+                               details={"total_results": len(all_results)})
             
             # Add a final strategy for direct similarity search if needed
             if len(all_results) < 5:  # If we still don't have enough results
@@ -583,7 +689,7 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # Format the context for the model with better organization and relevance scoring
         formatted_context = ""
         
-        # Score the results based on relevance indicators
+        # Enhanced scoring based on multiple relevance indicators
         scored_results = []
         for i, doc in enumerate(results):
             # Extract source document name from metadata if available
@@ -592,30 +698,83 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             if source != 'Unknown source' and isinstance(source, str):
                 source = os.path.basename(source)
             
-            # Calculate a basic relevance score
-            # This is a simple heuristic - could be improved with proper relevance scoring
-            score = 1.0
+            # Start with base score - use metadata score if available
+            score = doc.metadata.get('score', 1.0)
             
-            # Check if query terms appear in the content (basic relevance check)
+            # Advanced content matching with term frequency and position weighting
             if is_chinese:
-                # For Chinese, check if any of the multi-character terms appear
+                # For Chinese, check for exact matches of multi-character terms
                 if 'multi_char_terms' in locals() and multi_char_terms:
-                    for term in multi_char_terms[:5]:  # Check the first 5 terms
-                        if term in doc.page_content:
-                            score += 0.2  # Boost score for each matching term
+                    # Prioritize longer terms (more specific)
+                    for i, term in enumerate(multi_char_terms[:10]):
+                        # Weight by term length and position in the list
+                        term_weight = (0.3 * len(term) / 10) * (1.0 - (i * 0.05))
+                        
+                        # Count occurrences for frequency weighting
+                        term_count = doc.page_content.count(term)
+                        if term_count > 0:
+                            # Boost more for multiple occurrences
+                            score += term_weight * min(term_count, 3)  # Cap at 3 occurrences
+                            
+                            # Extra boost for terms at the beginning of the content
+                            if doc.page_content.find(term) < 100:
+                                score += 0.2  # Beginning of content is often more relevant
+                                
+                    # Special boost for exact query match
+                    if query in doc.page_content:
+                        score += 1.0  # Major boost for exact query match
             else:
-                # For non-Chinese, check for query words
+                # For non-Chinese, use more sophisticated word matching
                 query_words = query.lower().split()
+                
+                # Count matching words and their positions
+                matched_words = 0
+                matched_at_beginning = 0
+                content_lower = doc.page_content.lower()
+                
                 for word in query_words:
-                    if len(word) > 3 and word.lower() in doc.page_content.lower():
-                        score += 0.1
+                    if len(word) > 3:  # Only consider meaningful words
+                        # Count occurrences
+                        word_count = content_lower.count(word)
+                        if word_count > 0:
+                            matched_words += 1
+                            score += 0.1 * min(word_count, 5)  # Cap at 5 occurrences
+                            
+                            # Check if word appears at beginning
+                            if content_lower.find(word) < 150:
+                                matched_at_beginning += 1
+                
+                # Boost based on percentage of query words matched
+                if len(query_words) > 0:
+                    match_percentage = matched_words / len(query_words)
+                    score += match_percentage * 0.5
+                    
+                # Boost for words appearing at beginning
+                score += matched_at_beginning * 0.15
+                
+                # Check for exact phrase matches (much stronger signal)
+                processed_query = ' '.join([w for w in query_words if len(w) > 3])
+                if processed_query and processed_query in content_lower:
+                    score += 1.5  # Major boost for exact phrase match
             
-            # Penalize very short or very long chunks slightly
+            # Content quality factors
             content_len = len(doc.page_content)
+            
+            # Penalize very short chunks (likely incomplete information)
             if content_len < 100:
-                score -= 0.1
-            elif content_len > 3000:
-                score -= 0.1
+                score -= 0.3
+            # Slight penalty for extremely long chunks (harder to process)
+            elif content_len > 5000:
+                score -= 0.2
+            # Prefer medium-length chunks (500-2000 chars)
+            elif 500 <= content_len <= 2000:
+                score += 0.2  # Bonus for ideal length
+                
+            # Boost documents with rich metadata (likely higher quality)
+            if doc.metadata.get('title') and doc.metadata.get('title') != 'Unknown Title':
+                score += 0.2
+            if doc.metadata.get('author') and doc.metadata.get('author') != 'Unknown Author':
+                score += 0.1
                 
             scored_results.append((doc, source, score))
         
