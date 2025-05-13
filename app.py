@@ -672,7 +672,16 @@ def generate():
         # Check for documents in conversation or bot's knowledge base (skip for secret)
         use_rag = False
         retrieved_context = ""
+        
+        # Check if bot is selected either via bot_id parameter or model parameter
         bot_id = data.get('bot_id')
+        
+        # If no explicit bot_id but model starts with 'bot:', extract the bot_id from model
+        if not bot_id and model_name and model_name.startswith('bot:'):
+            bot_id = model_name.split(':', 1)[1]
+            app.logger.info(f"[RAG] Extracted bot_id {bot_id} from model parameter: {model_name}")
+            # Set use_rag to True since a bot is selected
+            use_rag = True
         
         # If a bot is selected in the request, update the conversation model
         if bot_id and not secret and conversation_id:
