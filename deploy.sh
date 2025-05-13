@@ -145,7 +145,7 @@ After=network.target
 User=$USER
 WorkingDirectory=$PWD
 Environment="PATH=$PWD/venv/bin:\$PATH"
-ExecStart=$PWD/venv/bin/gunicorn --bind 0.0.0.0:5000 --timeout 3600 --workers 3 app:app
+ExecStart=$PWD/venv/bin/gunicorn --bind 0.0.0.0:5000 --timeout 3600 --workers 1 app:app
 Restart=always
 
 [Install]
