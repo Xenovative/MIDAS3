@@ -2444,55 +2444,85 @@ def generate_image():
                     image_data = node_output['images'][0]
                     break
 
-            # Find the latest image in the output directories, regardless of filename
-            prompt_id = result.get('prompt_id')
-            app.logger.info(f"Searching for most recent image for prompt_id: {prompt_id}")
-            
-            # Define possible output directories to check
-            output_dirs = [
-                os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'Output'),
-                os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'output'),
-                'MIDAS_standalone/ComfyUI/Output',
-                'MIDAS_standalone/ComfyUI/output',
-                'ComfyUI/Output',
-                'ComfyUI/output',
-                'Output',
-                'output'
-            ]
-            
-            # Convert paths to OS-specific format
-            output_dirs = [d.replace('/', os.path.sep) for d in output_dirs]
-            app.logger.info(f"Checking directories: {output_dirs}")
-            
-            # Find the most recent image file
-            image_path = None
-            newest_time = 0
-            
-            for directory in output_dirs:
-                if os.path.exists(directory) and os.path.isdir(directory):
-                    app.logger.info(f"Checking directory: {directory}")
+            if image_filename:
+                # Get the base filename without extension for pattern matching
+                import re
+                import glob
+                
+                # Extract base name without extension for pattern matching
+                base_name = os.path.splitext(image_filename)[0]
+                base_name_pattern = re.sub(r'_\d+_$', '', base_name)  # Remove trailing numbers
+                app.logger.info(f"Base image name for pattern matching: {base_name_pattern}")
+                
+                # Construct path to the image in ComfyUI's output directory
+                # Convert forward slashes to backslashes for Windows
+                normalized_output_dir = comfy_output_dir.replace('/', os.path.sep)
+                image_path = os.path.join(normalized_output_dir, image_filename)
+                print(f"Looking for image at: {image_path}")
+                app.logger.info(f"Looking for image at: {image_path}")
+                
+                # Define potential output directories to check
+                potential_dirs = [
+                    normalized_output_dir,
+                    os.path.join(os.getcwd(), normalized_output_dir),
+                    os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'Output'),
+                    os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'output'),
+                    os.path.join('/root/MIDAS3', 'MIDAS_standalone', 'ComfyUI', 'Output'),
+                    os.path.join('/root/MIDAS3', 'MIDAS_standalone', 'ComfyUI', 'output'),
+                    'ComfyUI/Output',
+                    'Output',
+                    '.',
+                ]
+                
+                # Log directories we're checking
+                app.logger.info(f"Checking the following directories for images: {potential_dirs}")
+                
+                # Try to find the exact file or any file matching the pattern
+                found_image = False
+                for directory in potential_dirs:
                     try:
-                        # List all files in the directory
-                        files = os.listdir(directory)
-                        for file in files:
-                            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                                file_path = os.path.join(directory, file)
-                                file_time = os.path.getmtime(file_path)
-                                
-                                # If this is the newest file we've found so far
-                                if file_time > newest_time:
-                                    newest_time = file_time
-                                    image_path = file_path
-                                    app.logger.info(f"Found newer image: {image_path} (modified: {file_time})")
+                        # First try exact filename
+                        exact_path = os.path.join(directory, image_filename)
+                        if os.path.exists(exact_path):
+                            image_path = exact_path
+                            app.logger.info(f"Found exact image match at: {image_path}")
+                            found_image = True
+                            break
+                            
+                        # If exact match not found, list all files in directory and look for pattern match
+                        if os.path.exists(directory):
+                            app.logger.info(f"Listing files in {directory}")
+                            files = os.listdir(directory)
+                            app.logger.info(f"Files in directory: {files}")
+                            
+                            # Look for files matching our pattern
+                            for file in files:
+                                if base_name_pattern in file and (file.endswith('.png') or file.endswith('.jpg') or file.endswith('.jpeg')):
+                                    image_path = os.path.join(directory, file)
+                                    app.logger.info(f"Found pattern match at: {image_path}")
+                                    found_image = True
+                                    break
+                            
+                            # Also try glob pattern matching
+                            pattern = os.path.join(directory, f"*{base_name_pattern}*.png")
+                            app.logger.info(f"Trying glob pattern: {pattern}")
+                            matching_files = glob.glob(pattern)
+                            if matching_files:
+                                image_path = matching_files[0]  # Take the first match
+                                app.logger.info(f"Found glob match at: {image_path}")
+                                found_image = True
+                                break
                     except Exception as e:
                         app.logger.error(f"Error checking directory {directory}: {str(e)}")
                         continue
-            
-            # If we found an image
-            if image_path:
-                app.logger.info(f"Using most recent image: {image_path}")
-                # Update the image_filename to match the actual file we found
-                image_filename = os.path.basename(image_path)
+                        
+                    if found_image:
+                        break
+                        
+                if found_image:
+                    app.logger.info(f"Successfully found image at: {image_path}")
+                else:
+                    app.logger.error(f"Could not find any matching image file. Base pattern: {base_name_pattern}")
                 # Make sure the file exists
                 if os.path.exists(image_path):
                     print(f"Found image at: {image_path}")  # Debug output
@@ -2538,6 +2568,57 @@ def generate_image():
                             'seed': seed  # Include the seed in the response
                         })
 
+            # If we couldn't find the image using the exact name, try to find any recent image
+            try:
+                # Try to find most recent image in any of the potential directories
+                most_recent_image = None
+                most_recent_time = 0
+                
+                for directory in potential_dirs:
+                    if os.path.exists(directory):
+                        app.logger.info(f"Looking for recent images in {directory}")
+                        for file in os.listdir(directory):
+                            if file.endswith(('.png', '.jpg', '.jpeg')):
+                                file_path = os.path.join(directory, file)
+                                file_time = os.path.getmtime(file_path)
+                                if file_time > most_recent_time:
+                                    most_recent_time = file_time
+                                    most_recent_image = file_path
+                
+                if most_recent_image and (time.time() - most_recent_time) < 300:  # Image created in last 5 minutes
+                    app.logger.info(f"Found recent image at: {most_recent_image}")
+                    image_path = most_recent_image
+                    with open(image_path, 'rb') as img_file:
+                        img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
+                        
+                        # Save message to conversation history if conversation_id is provided
+                        if conversation_id:
+                            try:
+                                message_id = db.add_message(
+                                    conversation_id=conversation_id,
+                                    role='assistant',
+                                    content=f'',
+                                    thinking=None,
+                                    images=[img_b64],  
+                                    attachment_filename=os.path.basename(image_path)
+                                )
+                            except Exception as db_error:
+                                app.logger.error(f"Error saving image message to database: {str(db_error)}")
+                                return jsonify({
+                                    'status': 'error',
+                                    'message': f'Failed to save image message: {str(db_error)}'
+                                }), 500
+                        
+                        return jsonify({
+                            'status': 'success', 
+                            'image_base64': img_b64, 
+                            'filename': os.path.basename(image_path),
+                            'workflow': workflow,
+                            'seed': seed
+                        })
+            except Exception as e:
+                app.logger.error(f"Error finding recent image: {str(e)}")
+                
             app.logger.warning(f"Image generation completed but file not found for prompt_id {result.get('prompt_id')}")
             # If we couldn't find the image or it wasn't saved yet
             return jsonify({
