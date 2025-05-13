@@ -1051,10 +1051,10 @@ def generate():
                     except Exception as e:
                         app.logger.error(f"[RAG] Error checking conversation model: {str(e)}")
                 
-                # Only check all remaining collections if explicitly requested
+                # Only check all remaining collections if explicitly requested AND RAG is enabled
                 check_all_collections = data.get('check_all_collections', False)
-                if not retrieved_context and check_all_collections:
-                    app.logger.info(f"[RAG] Checking all remaining collections for relevant content")
+                if not retrieved_context and check_all_collections and rag_enabled:
+                    app.logger.info(f"[RAG] Checking all remaining collections for relevant content (explicitly requested)")
                     for coll_name in collection_names:
                         # Skip collections we already checked
                         if bot_id and any(possible_name in coll_name for possible_name in possible_bot_collections):
@@ -1087,10 +1087,12 @@ def generate():
                             app.logger.error(f"[RAG] Error checking collection '{coll_name}': {str(ce)}")
                             
                 # Check for collections with large document counts (likely our XML data)
-                if not retrieved_context:
+                # Only if RAG is enabled
+                if not retrieved_context and rag_enabled:
                     app.logger.info(f"[RAG] Looking for collections with large document counts")
-                    large_collections = []
                     
+                    # Sort collections by document count
+                    collection_counts = []
                     for coll_name in collection_names:
                         try:
                             vectorstore = rag.Chroma(
@@ -1099,20 +1101,17 @@ def generate():
                                 collection_name=coll_name
                             )
                             count = vectorstore._collection.count()
-                            
-                            # If collection has more than 1000 documents, it's likely our XML data
-                            if count > 1000:
-                                large_collections.append((coll_name, count))
-                        except Exception:
-                            pass
+                            collection_counts.append((coll_name, count))
+                        except Exception as e:
+                            app.logger.error(f"[RAG] Error getting count for collection '{coll_name}': {str(e)}")
                     
-                    # Sort by document count (largest first)
-                    large_collections.sort(key=lambda x: x[1], reverse=True)
-                    app.logger.info(f"[RAG] Found {len(large_collections)} collections with >1000 documents: {large_collections}")
+                    # Sort by count (descending)
+                    collection_counts.sort(key=lambda x: x[1], reverse=True)
+                    app.logger.info(f"[RAG] Collection counts: {collection_counts}")
                     
                     # Try the largest collections first
-                    for coll_name, count in large_collections:
-                        if not retrieved_context:
+                    for coll_name, count in collection_counts:
+                        if not retrieved_context and count > 1000:
                             app.logger.info(f"[RAG] Trying large collection '{coll_name}' with {count} documents")
                             try:
                                 retrieval_start = time.time()
