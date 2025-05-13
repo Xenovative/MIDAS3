@@ -2256,6 +2256,8 @@ def generate_image():
     import time
     import requests
     import base64
+    import re
+    import glob
     from flask import request, jsonify
     from datetime import datetime
 
@@ -2446,8 +2448,6 @@ def generate_image():
 
             if image_filename:
                 # Get the base filename without extension for pattern matching
-                import re
-                import glob
                 
                 # Extract base name without extension for pattern matching
                 base_name = os.path.splitext(image_filename)[0]
