@@ -2389,43 +2389,50 @@ def generate_image():
     result = resp.json()
     print(f"ComfyUI prompt_id: {result.get('prompt_id')}")
         
-    # Wait for the generation to complete
-    max_attempts = 300  # Maximum wait time = max_attempts * sleep_time (5 minutes)
-    sleep_time = 1  # seconds
-
-    # Wait 60 seconds before first check to give time for image generation
-    print(f"Waiting 60 seconds for image generation to complete for prompt_id {result.get('prompt_id')}")
-    # Also log to the application logger
-    app.logger.info(f"Waiting 60 seconds for image generation to complete for prompt_id {result.get('prompt_id')}")
-    time.sleep(60)
+    # Wait for the generation to complete with more frequent checks
+    # Initial wait time before first check
+    initial_wait = 15  # seconds
+    check_interval = 5  # seconds between checks
+    max_checks = 60    # maximum number of checks (5 min total with 5 sec intervals)
     
-    # First check after initial wait
-    print(f"Checking history for prompt_id {result.get('prompt_id')} (first check)")
-    app.logger.info(f"Checking history for prompt_id {result.get('prompt_id')} (first check)")
-    history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
-    print(f"History response: {history_resp.status_code}")
-    app.logger.info(f"History response: {history_resp.status_code}, content length: {len(history_resp.text)}")
+    print(f"Waiting {initial_wait} seconds before first check for prompt_id {result.get('prompt_id')}")
+    app.logger.info(f"Waiting {initial_wait} seconds before first check for prompt_id {result.get('prompt_id')}")
+    time.sleep(initial_wait)
     
-    # If not ready, wait in shorter intervals with more checks
-    attempts = 0
-    max_additional_attempts = 10
-    
-    # Add a log message to the main application log
+    # Start polling for results
     app.logger.info(f"Starting image generation polling for prompt_id {result.get('prompt_id')}")
     
-    while (history_resp.status_code != 200 or not history_resp.json().get(result.get('prompt_id'), {}).get('outputs')) and attempts < max_additional_attempts:
+    # Initialize variables
+    attempts = 0
+    history_resp = None
+    
+    # Poll until we get a result or hit max attempts
+    while attempts < max_checks:
         attempts += 1
-        print(f"Image not ready yet. Waiting additional 30 seconds for prompt_id {result.get('prompt_id')} (attempt {attempts}/{max_additional_attempts})")
-        # Also log to the application logger
-        app.logger.info(f"Image not ready yet. Waiting additional 30 seconds for prompt_id {result.get('prompt_id')} (attempt {attempts}/{max_additional_attempts})")
-        time.sleep(30)
         
-        # Check again
-        print(f"Checking history again for prompt_id {result.get('prompt_id')} (check #{attempts+1})")
-        app.logger.info(f"Checking history again for prompt_id {result.get('prompt_id')} (check #{attempts+1})")
-        history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
-        print(f"History response: {history_resp.status_code}")
-        app.logger.info(f"History response: {history_resp.status_code}, content length: {len(history_resp.text)}")
+        try:
+            # Check for results
+            print(f"Checking history for prompt_id {result.get('prompt_id')} (check #{attempts}/{max_checks})")
+            app.logger.info(f"Checking history for prompt_id {result.get('prompt_id')} (check #{attempts}/{max_checks})")
+            
+            history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
+            print(f"History response: {history_resp.status_code}")
+            app.logger.info(f"History response: {history_resp.status_code}, content length: {len(history_resp.text) if history_resp.text else 0}")
+            
+            # If we got a valid response with outputs, break the loop
+            if history_resp.status_code == 200 and history_resp.json().get(result.get('prompt_id'), {}).get('outputs'):
+                app.logger.info(f"Found image outputs after {attempts} checks")
+                break
+                
+            # If we're still waiting, sleep before next check
+            if attempts < max_checks:
+                print(f"Image not ready yet. Checking again in {check_interval} seconds (attempt {attempts}/{max_checks})")
+                app.logger.info(f"Image not ready yet. Checking again in {check_interval} seconds (attempt {attempts}/{max_checks})")
+                time.sleep(check_interval)
+                
+        except Exception as e:
+            app.logger.error(f"Error checking history: {str(e)}")
+            time.sleep(check_interval)  # Still wait before retrying
     
     if history_resp.status_code == 200:
         history_data = history_resp.json()
