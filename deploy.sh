@@ -158,7 +158,7 @@ EOF
     echo "MIDAS Systemd service created and started."
 else
     echo "Skipping Systemd service setup. You can run MIDAS manually using:"
-    echo "source venv/bin/activate && gunicorn -w 4 -k gevent -b 127.0.0.1:5000 --access-logfile - app:app"
+    echo "source venv/bin/activate && gunicorn -w 1 -k gevent -b 127.0.0.1:5000 --access-logfile - app:app"
 fi
 
 # 6. Firewall Configuration (firewalld)
