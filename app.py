@@ -2299,6 +2299,11 @@ def list_workflows():
     workflows = sorted([os.path.splitext(f)[0] for f in files])
     return jsonify({'status': 'success', 'workflows': workflows})
 
+# Track recent image generation requests to prevent duplicates
+recent_image_requests = {}
+RECENT_REQUEST_TIMEOUT = 10  # seconds
+MAX_STORED_REQUESTS = 100  # Maximum number of request hashes to store
+
 @app.route('/api/generate_image', methods=['POST'])
 @login_required
 def generate_image():
@@ -2308,15 +2313,35 @@ def generate_image():
     import time
     import requests
     import base64
+    import hashlib
     import re
     import glob
     from flask import request, jsonify
     from datetime import datetime
 
+    # Get request data
     data = request.get_json()
     prompt = data.get('prompt', '')
     model = data.get('model', '')  # Optional: workflow name if using a specific workflow
     conversation_id = data.get('conversation_id')  # Add conversation_id
+    
+    # Create a hash of the request to deduplicate
+    request_key = hashlib.md5(f"{prompt}:{model}:{conversation_id}".encode()).hexdigest()
+    
+    # Check if we've seen this exact request recently (within the last 10 seconds)
+    current_time = time.time()
+    if request_key in recent_image_requests:
+        last_request_time, processing = recent_image_requests[request_key]
+        # If request is very recent and still processing, return 429 Too Many Requests
+        if current_time - last_request_time < RECENT_REQUEST_TIMEOUT and processing:
+            app.logger.warning(f"Duplicate image generation request detected within {RECENT_REQUEST_TIMEOUT} seconds: {prompt[:50]}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Too many similar requests. Please wait before trying again.'
+            }), 429
+    
+    # Mark this request as being processed
+    recent_image_requests[request_key] = (current_time, True)
         
     # Store the last used seed in a global variable
     global last_used_seed
@@ -2627,6 +2652,10 @@ def generate_image():
                         # Don't save to DB here - let the frontend handle it
                         # This prevents double messages in the conversation
                         # The frontend will handle adding the image to the chat UI
+                        
+                        # Mark this request as completed
+                        if request_key in recent_image_requests:
+                            recent_image_requests[request_key] = (current_time, False)
 
                         return jsonify({
                             'status': 'success', 
@@ -2736,6 +2765,10 @@ def generate_image():
 
     # If we've exhausted all attempts and still haven't found the image
     app.logger.error(f"Timed out waiting for image generation to complete for prompt_id {result.get('prompt_id')}")
+    # Mark this request as completed (with error)
+    if request_key in recent_image_requests:
+        recent_image_requests[request_key] = (current_time, False)
+        
     return jsonify({
         'status': 'error',
         'message': 'Timed out waiting for image generation to complete'
