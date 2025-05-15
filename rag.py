@@ -485,8 +485,29 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         
         # Enhanced preprocessing function
         def preprocess_query(text, is_chinese=False):
+            # Special handling for Chinese text
+            if is_chinese:
+                # Remove Chinese punctuation but preserve the core characters
+                text = re.sub(r'[，。？！：；''""（）【】《》、～]', ' ', text)
+                
+                # Generate character n-grams for Chinese text (each character is meaningful)
+                chars = [c for c in text if '\u4e00' <= c <= '\u9fff']
+                
+                # Create 2-character and 3-character combinations
+                char_bigrams = [chars[i] + chars[i+1] for i in range(len(chars)-1)] if len(chars) > 1 else []
+                char_trigrams = [chars[i] + chars[i+1] + chars[i+2] for i in range(len(chars)-2)] if len(chars) > 2 else []
+                
+                # For longer Chinese text, also add some 4-character combinations (common in Chinese)
+                char_quadgrams = [chars[i] + chars[i+1] + chars[i+2] + chars[i+3] for i in range(len(chars)-3)] if len(chars) > 3 else []
+                
+                # Combine all to enhance search matching capability
+                enhanced_terms = chars + char_bigrams + char_trigrams + char_quadgrams
+                enhanced_query = text + ' ' + ' '.join(enhanced_terms)
+                
+                print(f"Enhanced Chinese query with {len(enhanced_terms)} additional terms")
+                return enhanced_query
             # For non-Chinese text
-            if not is_chinese:
+            else:
                 # Convert to lowercase
                 text = text.lower()
                 # Remove punctuation but preserve important symbols

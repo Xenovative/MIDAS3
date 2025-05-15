@@ -96,6 +96,8 @@ Thumbs.db
 # Databases
 *.db
 data/conversations.db
+db\chroma_db
+*.sqlite3
 database.db
 
 # Bot info
