@@ -324,7 +324,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=1000, operation_id=None):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=2000, operation_id=None, recursive_depth=0, max_recursive_depth=1):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
@@ -498,60 +498,143 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                 )
                 
                 # Get document count
-                docs_in_collection = vectorstore._collection.count()
-                print(f"Collection {collection_name} has {docs_in_collection} documents")
-                
-                if docs_in_collection == 0:
-                    print(f"No documents in collection {collection_name}, skipping")
-                    return []
-                
-                # Calculate how many documents to fetch based on collection size
-                # Use different retrieval strategies for Chinese vs non-Chinese queries
-                if is_chinese:
-                    # Very aggressive retrieval for Chinese queries to increase depth
-                    search_percentage = max(search_percentage, 0.75)  # Increase to 75% of documents
-                    k_value = min(int(docs_in_collection * search_percentage), n_results)
-                    fetch_k = min(docs_in_collection, max(k_value * 4, 2000))  # Fetch many more candidates
-                    print(f"Using CHINESE retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
-                else:
-                    # Standard retrieval for non-Chinese queries
-                    k_value = min(int(docs_in_collection * search_percentage), n_results)
-                    fetch_k = min(docs_in_collection, max(k_value * 2, 500))
-                    print(f"Using standard retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
-                
-                # Set up the retriever with different parameters for Chinese vs non-Chinese
-                if is_chinese:
-                    # For Chinese text, use similarity search with much lower threshold for depth
-                    # This helps find more matches even with slight language differences
-                    print(f"Using deep similarity search for Chinese query with fetch_k={fetch_k}")
-                    retriever = vectorstore.as_retriever(
-                        search_type="similarity",  # Use basic similarity instead of MMR for Chinese
-                        search_kwargs={
-                            "k": k_value,
-                            "fetch_k": fetch_k,
-                            # No lambda_mult for similarity search
-                            "score_threshold": 0.05,  # Much lower threshold to maximize result depth
-                        }
-                    )
-                else:
-                    # For non-Chinese text, use MMR which works better with English
-                    retriever = vectorstore.as_retriever(
-                        search_type="mmr",
-                        search_kwargs={
-                            "k": k_value,
-                            "fetch_k": fetch_k,
-                            "lambda_mult": 0.7
-                        }
-                    )
-                
-                # Get documents from this collection with debug output
-                print(f"*** EXECUTING SEARCH FOR: '{processed_query[:50]}...' ***")
-                print(f"*** COLLECTION: {collection_name}, CHINESE: {is_chinese} ***")
-                
+                docs_in_collection = 0
                 try:
-                    # Try the enhanced retriever first
-                    results = retriever.get_relevant_documents(processed_query)
-                    print(f"Retrieved {len(results)} documents from collection {collection_name} using retriever")
+                    # Get collection stats
+                    docs_in_collection = client.get_collection(collection_name).count()
+                    print(f"Collection {collection_name} has {docs_in_collection} documents")
+                    
+                    # For truly maximum depth, when collections are under a threshold,
+                    # just read the entire collection directly
+                    if docs_in_collection > 0 and docs_in_collection <= 100:
+                        print(f"SMALL COLLECTION DETECTED ({docs_in_collection} docs) - READING ENTIRE COLLECTION")
+                        try:
+                            # For small collections, just get everything
+                            all_docs = client.get_collection(collection_name).peek(limit=docs_in_collection)
+                            if all_docs and 'documents' in all_docs and len(all_docs['documents']) > 0:
+                                # Use all documents without embedding search
+                                full_collection_text = "\n\n".join(all_docs['documents'])
+                                print(f"Using full collection text: {len(full_collection_text)} chars")
+                                return full_collection_text
+                        except Exception as full_e:
+                            print(f"Failed to get full collection: {full_e}")
+                            # Continue with normal retrieval
+                    
+                    search_percentage = 0.5  # Increase default search percentage of collection
+                    
+                    # Adjust based on collection size
+                    if docs_in_collection < 10:
+                        search_percentage = 1.0  # For tiny collections, use all docs
+                    elif docs_in_collection < 50:
+                        search_percentage = 0.8  # For small collections, use most docs
+                    elif docs_in_collection < 200:
+                        search_percentage = 0.6  # For medium collections
+                    
+                    # Use different retrieval strategies for Chinese vs non-Chinese queries
+                    if is_chinese:
+                        # Ultra aggressive retrieval for Chinese queries to maximize depth
+                        search_percentage = max(search_percentage, 0.9)  # Increase to 90% of documents
+                        k_value = min(int(docs_in_collection * search_percentage), n_results)
+                        fetch_k = min(docs_in_collection, max(k_value * 5, 5000))  # Fetch massively more candidates
+                        print(f"Using CHINESE retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
+                    else:
+                        # Standard retrieval for non-Chinese queries
+                        k_value = min(int(docs_in_collection * search_percentage), n_results)
+                        fetch_k = min(docs_in_collection, max(k_value * 2, 500))
+                        print(f"Using standard retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
+                    
+                    # Set up the retriever with different parameters for Chinese vs non-Chinese
+                    if is_chinese:
+                        # For Chinese text, use similarity search with extremely low threshold for maximum depth
+                        # This helps find even tenuous matches in the collection
+                        print(f"Using ultra-deep similarity search for Chinese query with fetch_k={fetch_k}")
+                        retriever = vectorstore.as_retriever(
+                            search_type="similarity",  # Use basic similarity instead of MMR for Chinese
+                            search_kwargs={
+                                "k": k_value,
+                                "fetch_k": fetch_k,
+                                # No lambda_mult for similarity search
+                                "score_threshold": 0.01,  # Extremely low threshold for maximum recall
+                            }
+                        )
+                    else:
+                        # For non-Chinese text, use MMR which works better with English
+                        retriever = vectorstore.as_retriever(
+                            search_type="mmr",
+                            search_kwargs={
+                                "k": k_value,
+                                "fetch_k": fetch_k,
+                                "lambda_mult": 0.7
+                            }
+                        )
+                    
+                    # Get documents from this collection with debug output
+                    print(f"*** EXECUTING SEARCH FOR: '{processed_query[:50]}...' ***")
+                    print(f"*** COLLECTION: {collection_name}, CHINESE: {is_chinese} ***")
+                    
+                    try:
+                        # Try the enhanced retriever first
+                        results = process_with_retry(retriever.get_relevant_documents, [query], retry_wait=1, max_retries=5)
+                        print(f"Retrieved {len(results)} documents from {collection_name}")
+                    except Exception as e:
+                        print(f"Error in retrieval: {e}")
+                        results = []
+                    
+                    # RECURSIVE RETRIEVAL - for maximal depth, do a second-level search
+                    # on terms found in the top results if we haven't already recursed too deep
+                    if recursive_depth < max_recursive_depth and len(results) > 0 and is_chinese:
+                        try:
+                            print(f"Starting recursive retrieval at depth {recursive_depth+1}")
+                            # Extract key terms from top results
+                            top_results_text = "".join([doc.page_content for doc in results[:5]])
+                            
+                            # Get new terms that weren't in original query
+                            new_terms = set()
+                            
+                            # For Chinese, extract multi-character terms
+                            if is_chinese and len(top_results_text) > 0:
+                                # Find all 2-3 character sequences that appear multiple times
+                                for i in range(len(top_results_text) - 2):
+                                    term2 = top_results_text[i:i+2]
+                                    if len(term2.strip()) == 2 and top_results_text.count(term2) > 1 and term2 not in query:
+                                        new_terms.add(term2)
+                                        
+                                    if i < len(top_results_text) - 3:
+                                        term3 = top_results_text[i:i+3]
+                                        if len(term3.strip()) == 3 and top_results_text.count(term3) > 1 and term3 not in query:
+                                            new_terms.add(term3)
+                            
+                            # Use the top 3 new terms for recursive search
+                            new_terms_list = list(new_terms)[:3]
+                            if new_terms_list:
+                                print(f"Found {len(new_terms_list)} new terms for recursive search: {new_terms_list}")
+                                
+                                # For each new term, do a retrieval and add results
+                                for term in new_terms_list:
+                                    # Recursive call with increased depth counter
+                                    term_results = retrieve_context(
+                                        query=term, 
+                                        collection_name=collection_name,
+                                        conversation_id=conversation_id,
+                                        bot_collection=bot_collection,
+                                        n_results=100,  # Limit recursive search
+                                        operation_id=operation_id,
+                                        recursive_depth=recursive_depth+1,
+                                        max_recursive_depth=max_recursive_depth
+                                    )
+                                    
+                                    # Convert string results back to documents for merging
+                                    if term_results:
+                                        # Create a document from the string results
+                                        from langchain.schema import Document
+                                        term_doc = Document(
+                                            page_content=term_results,
+                                            metadata={"source": f"recursive_search_{term}", "score": 0.7}
+                                        )
+                                        results.append(term_doc)
+                        except Exception as rec_e:
+                            print(f"Error in recursive retrieval: {rec_e}")
+                            # Continue with existing results {collection_name} using retriever")
                     
                     # If Chinese query and no results, try direct similarity search
                     if is_chinese and len(results) == 0:
@@ -849,6 +932,16 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # Format the context for the model with better organization and relevance scoring
         formatted_context = ""
         
+        # For multi-collection searches, organize by collection
+        results_by_collection = {}
+        
+        # Group by collection if multiple were searched
+        for doc in results:
+            collection = doc.metadata.get('collection', 'default')
+            if collection not in results_by_collection:
+                results_by_collection[collection] = []
+            results_by_collection[collection].append(doc)
+            
         # Enhanced scoring based on multiple relevance indicators
         scored_results = []
         for i, doc in enumerate(results):
