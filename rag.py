@@ -312,14 +312,16 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, n_results=500, operation_id=None):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=500, operation_id=None):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
         query: The query to search for
-        collection_name: Name of the collection to search in
+        collection_name: Name of the collection to search in (default collection)
         conversation_id: If provided, will search in a conversation-specific collection
+        bot_collection: If provided, will search in the bot's knowledge base collection
         n_results: Number of results to return
+        operation_id: Unique identifier for tracking the retrieval process
         
     Returns:
         str: The retrieved context as a string
@@ -337,64 +339,129 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         )
         update_progress(operation_id, current_step=1, description="Initializing retrieval")
         
-        # If conversation_id is provided, use a conversation-specific collection
+        # Determine which collections to search based on our rules
+        collections_to_search = []
+        collection_descriptions = []
+        
+        # Rule 1: Conversation with a bot with knowledge base
+        if bot_collection:
+            collections_to_search.append(bot_collection)
+            collection_descriptions.append(f"bot knowledge base ({bot_collection})")
+            print(f"[Rule 1] Using bot knowledge base collection: {bot_collection}")
+        
+        # Rule 2 & 3: Conversation with documents uploaded
         if conversation_id:
-            collection_name = get_conversation_collection_name(conversation_id)
+            conv_collection = get_conversation_collection_name(conversation_id)
+            # Check if this collection actually exists and has documents
+            if has_documents(conversation_id=conversation_id):
+                collections_to_search.append(conv_collection)
+                collection_descriptions.append(f"conversation documents ({conv_collection})")
+                print(f"[Rule 2/3] Using conversation documents collection: {conv_collection}")
+        
+        # If no specific collections were found, don't use ANY collection
+        # This enforces our rule that RAG should only use specific collections based on our rules
+        if not collections_to_search:
+            print(f"No valid collections found based on our rules, not falling back to default")
+            # Return empty results immediately to avoid any RAG search
+            return ""
             
-        print(f"--- Retrieving Context from Collection: {collection_name} ---")
-        update_progress(operation_id, current_step=2, description=f"Connecting to collection: {collection_name}")
+        # Log which collections we're searching
+        collection_str = ', '.join(collections_to_search)
+        print(f"--- Retrieving Context from Collections: {collection_str} ---")
+        update_progress(operation_id, current_step=2, 
+                       description=f"Searching {len(collections_to_search)} collections: {', '.join(collection_descriptions)}")
         
-        # Initialize the Chroma vector store with the specified collection
-        vectorstore = Chroma(
-            persist_directory=CHROMA_PERSIST_DIR, 
-            embedding_function=ollama_ef, 
-            collection_name=collection_name
-        )
-        update_progress(operation_id, current_step=3, description="Connected to vector database")
+        # Initialize results list that will store results from all collections
+        all_collection_results = []
+        total_docs = 0
+        update_progress(operation_id, current_step=3, description="Setting up vector database connections")
         
-        # Get total document count to determine retrieval strategy
-        total_docs = vectorstore._collection.count()
-        print(f"Total documents in collection: {total_docs}")
-        update_progress(operation_id, current_step=4, 
-                       description=f"Found {total_docs} documents in collection",
+        # Function to process a single collection
+        def process_collection(collection_name, search_percentage=0.2):
+            try:
+                print(f"Processing collection: {collection_name}")
+                # Connect to the collection
+                vectorstore = Chroma(
+                    persist_directory=CHROMA_PERSIST_DIR, 
+                    embedding_function=ollama_ef, 
+                    collection_name=collection_name
+                )
+                
+                # Get document count
+                docs_in_collection = vectorstore._collection.count()
+                print(f"Collection {collection_name} has {docs_in_collection} documents")
+                
+                if docs_in_collection == 0:
+                    print(f"No documents in collection {collection_name}, skipping")
+                    return []
+                
+                # Calculate how many documents to fetch based on collection size
+                k_value = min(int(docs_in_collection * search_percentage), n_results)
+                fetch_k = min(docs_in_collection, max(k_value * 2, 500))
+                
+                print(f"Retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
+                
+                # Set up the retriever with MMR search
+                retriever = vectorstore.as_retriever(
+                    search_type="mmr",
+                    search_kwargs={
+                        "k": k_value,
+                        "fetch_k": fetch_k,
+                        "lambda_mult": 0.7
+                    }
+                )
+                
+                # Get documents from this collection
+                results = retriever.get_relevant_documents(processed_query)
+                print(f"Retrieved {len(results)} documents from collection {collection_name}")
+                
+                # Add metadata about which collection the results came from
+                for doc in results:
+                    if 'source_collection' not in doc.metadata:
+                        doc.metadata['source_collection'] = collection_name
+                
+                return results
+            except Exception as e:
+                print(f"Error processing collection {collection_name}: {e}")
+                return []
+        
+        # Search each collection based on our rules
+        for i, collection_name in enumerate(collections_to_search):
+            update_progress(operation_id, current_step=4, 
+                           description=f"Searching collection {i+1}/{len(collections_to_search)}: {collection_name}")
+            
+            # Process this collection
+            results = process_collection(collection_name)
+            
+            # Keep track of total documents across all collections
+            if results:
+                all_collection_results.extend(results)
+                total_docs += len(results)
+                print(f"Added {len(results)} results from {collection_name}, total now: {total_docs}")
+        
+        # Log results summary
+        update_progress(operation_id, current_step=5, 
+                       description=f"Found {total_docs} documents across {len(collections_to_search)} collections",
                        details={"total_documents": total_docs})
         
-        # Determine how many documents to retrieve based on collection size
-        # For all collections, try to retrieve a substantial portion of documents
-        if total_docs < 5000:
-            # For small collections, retrieve almost everything
-            fetch_k = min(total_docs, 500)  # Retrieve up to 500 docs for small collections
-            k_value = min(total_docs, n_results)
-        elif total_docs < 20000:
-            # For medium collections, retrieve a large portion
-            fetch_k = min(int(total_docs * 0.3), 500)  # Up to 30% of docs, max 500
-            k_value = min(int(total_docs * 0.3), n_results)  # Up to 30% of docs, max n_results
-        else:
-            # For very large collections, still retrieve a significant amount
-            fetch_k = 500  # Fixed large value
-            k_value = n_results
-        
-        print(f"Retrieval strategy: fetch_k={fetch_k}, k={k_value}")
-        update_progress(operation_id, current_step=5, 
-                       description=f"Planning to retrieve {k_value} documents (fetch_k={fetch_k})",
-                       details={"fetch_k": fetch_k, "k_value": k_value})
-        
-        # For Chinese text, we need to be more lenient with similarity scores
-        # Use MMR retriever to maximize relevance and diversity
+        # We've already retrieved documents from each collection separately
+        # Now we need to process the combined results
         update_progress(operation_id, current_step=6, 
-                       description="Setting up retriever with MMR search strategy",
-                       details={"search_type": "mmr", "lambda_mult": 0.7})
-        
-        retriever = vectorstore.as_retriever(
-            search_type="mmr",  # Maximum Marginal Relevance - balances relevance with diversity
-            search_kwargs={
-                "k": k_value,
-                "fetch_k": fetch_k,  # Fetch more candidates to filter from
-                "lambda_mult": 0.7  # Lower values (0.5-0.7) prioritize diversity over pure relevance
-            }
-        )
+                       description="Processing and combining results from all collections")
+            
+        # Use all_collection_results as our combined results
+        results = all_collection_results
+            
+        # No fallback approaches - we only use the collections specified by our rules
+        if not results and collections_to_search:
+            update_progress(operation_id, current_step=6.5, 
+                           description="No results from search, but we don't use fallbacks anymore")
+            print(f"No results found in specified collections, and fallbacks are disabled")
+            # Empty results with no fallback
+                
+        # Update progress
         update_progress(operation_id, current_step=7, 
-                       description="Retriever configured, preparing to execute query")
+                       description=f"Retrieved a total of {len(results)} documents")
         
         # Preprocess query to improve retrieval effectiveness
         # 1. Detect language
@@ -487,202 +554,91 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             # Keep the top terms to avoid query explosion
             multi_char_terms = multi_char_terms[:20]
             
-        # Use the retriever to get relevant documents with multiple strategies in parallel
-        all_results = []
-        try:
-            update_progress(operation_id, current_step=9, 
-                           description="Starting document retrieval with multiple strategies")
-            
-            import concurrent.futures
-            
-            # Define multiple retrieval strategies as functions with improved approaches
-            def strategy1():
-                print("Strategy 1: Using processed query with exact matching")
-                # Set search parameters to prioritize exact matches
-                exact_retriever = vectorstore.as_retriever(
-                    search_type="similarity",  # Use similarity for exact matching
-                    search_kwargs={
-                        "k": k_value,
-                        "score_threshold": 0.2,  # Only return somewhat relevant results
-                    }
-                )
-                return exact_retriever.get_relevant_documents(processed_query)
-                
-            def strategy2():
-                if is_chinese:
-                    print("Strategy 2: Using key terms for Chinese query")
-                    # Join top terms with OR for broader matching
-                    top_terms = multi_char_terms[:10]  # Use more terms
-                    term_query = " OR ".join(top_terms)
-                    return retriever.get_relevant_documents(term_query)
-                else:
-                    # For non-Chinese, use keyword extraction
-                    words = processed_query.split()
-                    # Filter for meaningful words (longer than 3 chars)
-                    keywords = [w for w in words if len(w) > 3]
-                    if keywords:
-                        keyword_query = " OR ".join(keywords)
-                        print(f"Strategy 2: Using extracted keywords: {keyword_query}")
-                        return retriever.get_relevant_documents(keyword_query)
-                return []
-                
-            def strategy3():
-                # Use semantic chunking for longer queries
-                if len(query) > 20:
-                    print("Strategy 3: Using query segments")
-                    # Split query into segments
-                    segments = []
-                    if is_chinese:
-                        # For Chinese, use sliding window
-                        window = 15
-                        step = 10
-                        for i in range(0, len(query), step):
-                            if i + window <= len(query):
-                                segments.append(query[i:i+window])
-                    else:
-                        # For non-Chinese, split by sentences
-                        import re
-                        sentences = re.split(r'[.!?]\s*', query)
-                        segments = [s.strip() for s in sentences if len(s.strip()) > 10]
-                    
-                    # Get results for each segment
-                    segment_results = []
-                    for segment in segments[:3]:  # Limit to first 3 segments
-                        print(f"Querying segment: {segment}")
-                        try:
-                            results = retriever.get_relevant_documents(segment)
-                            segment_results.extend(results)
-                        except Exception as e:
-                            print(f"Error retrieving for segment '{segment}': {e}")
-                    
-                    return segment_results
-                return []
-                
-            def strategy4():
-                # Use a hybrid retrieval approach for all queries
-                print("Strategy 4: Using hybrid BM25 + vector approach")
-                try:
-                    # Use a different retriever configuration that balances keyword and semantic matching
-                    hybrid_retriever = vectorstore.as_retriever(
-                        search_type="mmr",
-                        search_kwargs={
-                            "k": k_value,
-                            "fetch_k": fetch_k * 2,  # Get more candidates
-                            "lambda_mult": 0.3,  # Prioritize diversity more
-                        }
-                    )
-                    return hybrid_retriever.get_relevant_documents(query)  # Use original query
-                except Exception as e:
-                    print(f"Error in hybrid retrieval: {e}")
-                    return []
-            
-            import multiprocessing
-            num_cores = multiprocessing.cpu_count()
-            max_workers = min(num_cores, 4)  # Use up to 4 cores for retrieval
-            
-            print(f"Using {max_workers} parallel workers for retrieval strategies")
-            update_progress(operation_id, current_step=9.5, 
-                           description=f"Running {max_workers} parallel retrieval strategies",
-                           details={"workers": max_workers, "cpu_cores": num_cores})
-            
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all strategies
-                futures = []
-                futures.append(executor.submit(strategy1))
-                futures.append(executor.submit(strategy2))  # Now works for both Chinese and non-Chinese
-                if len(query) > 20:  # Strategy 3 now works for both Chinese and non-Chinese
-                    futures.append(executor.submit(strategy3))
-                futures.append(executor.submit(strategy4))  # Always use the hybrid approach
-                
-                # Process results as they complete
-                for i, future in enumerate(concurrent.futures.as_completed(futures)):
-                    try:
-                        results = future.result()
-                        all_results.extend(results)
-                        print(f"Strategy {i+1} results: {len(results)}")
-                        update_progress(operation_id, 
-                                       description=f"Retrieved {len(results)} documents from strategy {i+1}",
-                                       details={"strategy": i+1, "results": len(results)})
-                    except Exception as e:
-                        print(f"Error in retrieval strategy {i+1}: {e}")
-                        
-                # Log the total number of results before deduplication
-                print(f"Total results before deduplication: {len(all_results)}")
-                update_progress(operation_id, 
-                               description=f"Retrieved {len(all_results)} total documents before deduplication",
-                               details={"total_results": len(all_results)})
-            
-            # Add a final strategy for direct similarity search if needed
-            if len(all_results) < 5:  # If we still don't have enough results
-                def strategy_direct():
-                    print("Strategy Direct: Using direct similarity search")
-                    return vectorstore.similarity_search(query, k=n_results)
-                
-                try:
-                    results_direct = strategy_direct()
-                    all_results.extend(results_direct)
-                    print(f"Direct similarity search results: {len(results_direct)}")
-                except Exception as e:
-                    print(f"Error in direct similarity search: {e}")
-            
-            # Deduplicate and limit results using memory-optimized approach
-            # Use a more sophisticated deduplication strategy that leverages EC2 memory
-            update_progress(operation_id, current_step=9.8, 
-                           description="Optimizing and deduplicating results",
-                           details={"total_candidates": len(all_results)})
-            
-            # Use a dictionary for faster lookups
-            unique_docs = {}
-            for doc in all_results:
-                # Create a more robust hash key using both content and metadata
-                content_sample = doc.page_content[:150] if len(doc.page_content) > 150 else doc.page_content
-                source = doc.metadata.get('source', '')
-                # Combine content and source for a more precise deduplication key
-                dedup_key = f"{source}:{content_sample}"
-                
-                # If we haven't seen this document before, or if it's a better match
-                if dedup_key not in unique_docs:
-                    unique_docs[dedup_key] = doc
-            
-            # Convert back to list and limit results
-            results = list(unique_docs.values())
-            
-            # Sort by relevance if we have metadata with scores
-            if results and hasattr(results[0], 'metadata') and 'score' in results[0].metadata:
-                results.sort(key=lambda x: x.metadata.get('score', 0), reverse=True)
-                
-            # Limit to requested number
-            if len(results) > n_results:
-                results = results[:n_results]
-                    
-            print(f"Final results after deduplication: {len(results)}")
-            
-            # If we still have no results, fall back to basic similarity search
-            if not results:
-                print("No results from all strategies, falling back to basic similarity search")
-                results = vectorstore.similarity_search(query, k=n_results)
+        # We'll use the enhanced query processing similar to the original code
+        # Apply preprocessing to query to get better retrieval
+        processed_query = preprocess_query(query, is_chinese)
         
-        except Exception as e:
-            print(f"Error during retrieval: {e}")
-            # Fallback to basic similarity search
-            results = vectorstore.similarity_search(query, k=n_results)
-            print(f"Fallback results: {len(results)}")
+        # For Chinese queries, extract key terms to help with scoring
+        if is_chinese:
+            # Extract all Chinese characters as potential key terms
+            key_terms = [char for char in query if '\u4e00' <= char <= '\u9fff']
+            print(f"Extracted {len(key_terms)} Chinese characters")
+            
+            # Look for multi-character terms (enhanced approach)
+            multi_char_terms = []
+            
+            # Add 2-character terms
+            for i in range(len(key_terms) - 1):
+                multi_char_terms.append(key_terms[i] + key_terms[i+1])
+            
+            # Add 3-character terms
+            for i in range(len(key_terms) - 2):
+                multi_char_terms.append(key_terms[i] + key_terms[i+1] + key_terms[i+2])
+            
+            # Add 4-character terms
+            for i in range(len(key_terms) - 3):
+                multi_char_terms.append(key_terms[i] + key_terms[i+1] + key_terms[i+2] + key_terms[i+3])
+                
+            # Add the full query as a term for exact matching
+            multi_char_terms.append(query)
         
-        # If we still have no results, try one last desperate approach
-        if not results and is_chinese:
+        # Next step is to deduplicate the results we already have
+        update_progress(operation_id, current_step=8, 
+                       description="Deduplicating results from different collections")
+        
+        # Use a dictionary for faster lookups during deduplication
+        unique_docs = {}
+        for doc in results:
+            # Create a robust hash key using both content and metadata
+            content_sample = doc.page_content[:150] if len(doc.page_content) > 150 else doc.page_content
+            source = doc.metadata.get('source', '')
+            source_collection = doc.metadata.get('source_collection', '')
+            
+            # Combine content, source and collection for a precise deduplication key
+            dedup_key = f"{source}:{source_collection}:{content_sample}"
+            
+            # If we haven't seen this document before
+            if dedup_key not in unique_docs:
+                unique_docs[dedup_key] = doc
+        
+        # Convert back to list
+        results = list(unique_docs.values())
+        print(f"Deduplicated to {len(results)} unique documents")
+        
+        # If we have too many results, limit them
+        if len(results) > n_results:
+            results = results[:n_results]
+        
+        update_progress(operation_id, current_step=9, 
+                      description=f"Finalized {len(results)} documents for context")
+        
+        # Last resort if we still have no results
+        if not results and is_chinese and collections_to_search:
             print("Last resort: Searching for any Chinese content")
-            # Try to find any documents with Chinese text
-            for char in key_terms:
-                try:
-                    char_results = vectorstore.similarity_search(char, k=5)
-                    if char_results:
-                        print(f"Found {len(char_results)} results for character '{char}'")
-                        results.extend(char_results)
-                        if len(results) >= n_results:
-                            results = results[:n_results]
-                            break
-                except Exception:
-                    continue
+            # Try to find any documents with Chinese text in the first collection
+            try:
+                fallback_collection = collections_to_search[0]
+                vectorstore = Chroma(
+                    persist_directory=CHROMA_PERSIST_DIR, 
+                    embedding_function=ollama_ef, 
+                    collection_name=fallback_collection
+                )
+                
+                # Try some common Chinese characters or terms from the query
+                for char in key_terms[:10]:  # Try the first 10 characters
+                    try:
+                        char_results = vectorstore.similarity_search(char, k=5)
+                        if char_results:
+                            print(f"Found {len(char_results)} results for character '{char}'")
+                            results.extend(char_results)
+                            if len(results) >= n_results:
+                                results = results[:n_results]
+                                break
+                    except Exception as e:
+                        print(f"Error searching for character '{char}': {e}")
+                        continue
+            except Exception as e:
+                print(f"Error in last resort search: {e}")
         
         print(f"Retrieved {len(results)} context chunks from knowledge base")
         

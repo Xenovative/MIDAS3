@@ -673,10 +673,11 @@ def generate():
         # Check for documents in conversation or bot's knowledge base (skip for secret)
         use_rag = False
         retrieved_context = ""
+        use_conversation_docs = False
+        use_bot_knowledge = False
         
         # Log the full request data for debugging
         app.logger.info(f"[RAG] Request data: bot_id={data.get('bot_id')}, conversation_id={conversation_id}")
-        app.logger.info(f"[RAG] Full request data: {data}")
         
         # Check if bot is selected either via bot_id parameter or model parameter
         bot_id = data.get('bot_id')
@@ -685,8 +686,6 @@ def generate():
         if not bot_id and model_name and model_name.startswith('bot:'):
             bot_id = model_name.split(':', 1)[1]
             app.logger.info(f"[RAG] Extracted bot_id {bot_id} from model parameter: {model_name}")
-            # Set use_rag to True since a bot is selected
-            use_rag = True
         
         # If a bot is selected in the request, update the conversation model
         if bot_id and not secret and conversation_id:
@@ -701,27 +700,16 @@ def generate():
         # Check for knowledge files in the request
         knowledge_files = data.get('knowledge_files', [])
         
-        # Only enable RAG if explicitly requested, documents exist in conversation, or knowledge files are provided
-        rag_enabled = data.get('use_rag', False)  # Default to False to prevent unwanted RAG
-        
-        # First check if a bot is explicitly selected in the request
-        if bot_id:
-            app.logger.info(f"[RAG] Bot {bot_id} explicitly selected in request, enabling RAG")
-            rag_enabled = True
-        # Check if knowledge files are provided in the request
-        elif knowledge_files:
-            app.logger.info(f"[RAG] Knowledge files found in request: {knowledge_files}, enabling RAG")
-            rag_enabled = True
-        # Check if conversation is associated with a bot (model field starts with 'bot:')
-        elif conversation_id and not secret:
+        # Check if conversation is associated with a bot (model field starts with 'bot:') 
+        # if bot_id wasn't already extracted
+        if not bot_id and conversation_id and not secret:
             try:
                 conversation = db.get_conversation(conversation_id)
                 if conversation and 'model' in conversation and conversation['model'].startswith('bot:'):
                     # Extract bot ID from model string
                     extracted_bot_id = conversation['model'].split(':', 1)[1]
                     bot_id = extracted_bot_id  # Set the bot_id for later use
-                    app.logger.info(f"[RAG] Conversation {conversation_id} is associated with bot {bot_id}, enabling RAG")
-                    rag_enabled = True
+                    app.logger.info(f"[RAG] Conversation {conversation_id} is associated with bot {bot_id}")
                     
                     # Add the bot_id to the request data for future processing
                     # This ensures the bot's system prompt and base model will be used
@@ -730,38 +718,99 @@ def generate():
                         app.logger.info(f"[RAG] Added bot_id {bot_id} to request data from conversation model")
             except Exception as e:
                 app.logger.error(f"[RAG] Error checking conversation model: {str(e)}")
-                # Continue with default rag_enabled value
         
-        # Then check conversation-specific documents
-        if not secret and rag_enabled and rag.has_documents(conversation_id=conversation_id):
-            app.logger.info(f"[RAG] Documents found for conversation {conversation_id}, using conversation RAG")
-            use_rag = True
-        elif not rag_enabled:
-            app.logger.info(f"[RAG] RAG disabled - no bot selected or explicitly disabled in request")
-            use_rag = False
-            
-            # Log RAG query details before retrieval
-            app.logger.info(f"[RAG] Querying conversation knowledge with: '{user_message[:100]}...'")
-            
-            # Retrieve context from conversation documents with timeout handling
-            retrieval_start = time.time()
+        # Rule 3: Check if conversation has uploaded documents
+        has_conversation_docs = False
+        if conversation_id and not secret:
             try:
-                # Generate a unique operation ID for tracking
-                operation_id = f"rag_conv_{conversation_id}_{int(time.time())}"
+                has_conversation_docs = rag.has_documents(conversation_id=conversation_id)
+                if has_conversation_docs:
+                    app.logger.info(f"[RAG] Documents found for conversation {conversation_id}")
+                    use_conversation_docs = True
+                    # Don't set use_rag here - only set it through our rules section below
+            except Exception as e:
+                app.logger.error(f"[RAG] Error checking conversation documents: {str(e)}")
+        
+        # Rule 1 & 2: Check if bot has knowledge base
+        has_bot_knowledge = False
+        if bot_id:
+            try:
+                bot = Bot.get(bot_id)
+                if bot and bot.knowledge_files:
+                    has_bot_knowledge = True
+                    app.logger.info(f"[RAG] Bot {bot_id} has knowledge base with {len(bot.knowledge_files)} files")
+                    use_bot_knowledge = True
+                    # Don't set use_rag here - only set it through our rules section below
+                else:
+                    app.logger.info(f"[RAG] Bot {bot_id} has no knowledge base files")
+            except Exception as e:
+                app.logger.error(f"[RAG] Error checking bot knowledge base: {str(e)}")
                 
-                # Set a timeout for retrieval (120 seconds)
-                import threading
+        # Apply the rules
+        if not secret:
+            if use_bot_knowledge and use_conversation_docs:
+                # Rule 2: Conversation with a bot with knowledge base AND documents uploaded
+                app.logger.info(f"[RAG] Using both bot knowledge base AND conversation documents for RAG")
+                use_rag = True
+            elif use_bot_knowledge and not use_conversation_docs:
+                # Rule 1: Conversation with a bot with knowledge base
+                app.logger.info(f"[RAG] Using ONLY bot knowledge base for RAG")
+                use_rag = True
+            elif use_conversation_docs and not use_bot_knowledge:
+                # Rule 3: Conversation with files uploaded but no bot or bot without knowledge base
+                app.logger.info(f"[RAG] Using ONLY conversation documents for RAG")
+                use_rag = True
+            elif bot_id and not has_bot_knowledge:
+                # Rule 4: Conversation with a bot without knowledge base
+                app.logger.info(f"[RAG] Bot has no knowledge base, disabling RAG")
+                use_rag = False
+            else:
+                app.logger.info(f"[RAG] No RAG sources available, disabling RAG")
+                use_rag = False
+            
+        if use_rag and not secret:
+            # Generate a unique operation ID for tracking
+            operation_id = f"rag_{conversation_id}_{int(time.time())}"
+            app.logger.info(f"[RAG] Querying with: '{user_message[:100]}...'")
+            retrieval_start = time.time()
+            
+            try:
                 import concurrent.futures
+                
+                # Determine which collections to query based on our rules
+                bot_collection = None
+                if use_bot_knowledge and bot_id:
+                    bot_collection = f"bot_{bot_id}"
+                    app.logger.info(f"[RAG] Will query bot collection: {bot_collection}")
                 
                 # Use ThreadPoolExecutor to run with timeout
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(rag.retrieve_context, 
-                                          query=user_message, 
-                                          conversation_id=conversation_id,
-                                          operation_id=operation_id)
+                    # Configure retrieval based on our rules
+                    if use_bot_knowledge and use_conversation_docs:
+                        # Rule 2: Use both bot knowledge and conversation documents
+                        app.logger.info(f"[RAG] Using both bot knowledge and conversation documents")
+                        future = executor.submit(rag.retrieve_context, 
+                                            query=user_message, 
+                                            conversation_id=conversation_id,
+                                            bot_collection=bot_collection,
+                                            operation_id=operation_id)
+                    elif use_bot_knowledge and not use_conversation_docs:
+                        # Rule 1: Use ONLY bot knowledge base
+                        app.logger.info(f"[RAG] Using ONLY bot knowledge base (collection: {bot_collection})")
+                        future = executor.submit(rag.retrieve_context, 
+                                            query=user_message, 
+                                            bot_collection=bot_collection,
+                                            operation_id=operation_id)
+                    elif use_conversation_docs and not use_bot_knowledge:
+                        # Rule 3: Use ONLY conversation documents
+                        app.logger.info(f"[RAG] Using ONLY conversation documents")
+                        future = executor.submit(rag.retrieve_context, 
+                                            query=user_message, 
+                                            conversation_id=conversation_id,
+                                            operation_id=operation_id)
                     
                     # Log the operation ID for tracking
-                    app.logger.info(f"[RAG] Started conversation retrieval operation: {operation_id}")
+                    app.logger.info(f"[RAG] Started retrieval operation: {operation_id}")
                     
                     try:
                         retrieved_context = future.result(timeout=120)  # 2 minute timeout
@@ -769,61 +818,69 @@ def generate():
                         
                         # Log RAG results
                         if retrieved_context:
-                            app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from conversation knowledge in {retrieval_time:.2f}s")
-                            app.logger.info(f"[RAG] Conversation knowledge sample: '{retrieved_context[:200]}...'")
+                            app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters in {retrieval_time:.2f}s")
+                            app.logger.info(f"[RAG] Context sample: '{retrieved_context[:200]}...'")
                         else:
-                            app.logger.info(f"[RAG] No relevant context found in conversation documents")
+                            app.logger.info(f"[RAG] No relevant context found")
                     except concurrent.futures.TimeoutError:
-                        # Handle timeout - continue without RAG context
                         app.logger.warning(f"[RAG] Retrieval timed out after 120 seconds, continuing without context")
                         retrieved_context = ""  # Empty context if timeout
-                        # Cancel the future if possible
                         future.cancel()
             except Exception as e:
-                # Handle any other exceptions during retrieval
                 app.logger.error(f"[RAG] Error during retrieval: {str(e)}")
                 retrieved_context = ""  # Empty context on error
-        
-        # If no conversation documents or no results, check bot's knowledge base
-        if not secret and not retrieved_context:
-            # Debug request data
-            app.logger.info(f"[RAG] Request data: bot_id={bot_id}, conversation_id={conversation_id}")
-            app.logger.info(f"[RAG] Full request data: {data}")
+                
+        # Debug info for bot identification
+        if bot_id and not secret:
+            app.logger.info(f"[RAG] Using bot_id: {bot_id}")
+            bot_collection = f"bot_{bot_id}"
             
-            # First check if bot_id is provided in the request
-            if bot_id:
-                app.logger.info(f"[RAG] Using bot_id from request: {bot_id}")
-                bot_collection = f"bot_{bot_id}"
-            else:
-                # If no bot_id in request, try to get the bot associated with this conversation
-                try:
-                    app.logger.info(f"[RAG] No bot_id in request, checking conversation {conversation_id}")
-                    conversation = db.get_conversation(conversation_id)
-                    app.logger.info(f"[RAG] Conversation data: {conversation}")
+            # Log available collections
+            try:
+                available_collections = rag.list_collections()
+                app.logger.info(f"[RAG] Available collections: {available_collections}")
+                
+                # Check for possible bot collection names if the exact match isn't found
+                if bot_collection not in available_collections:
+                    possible_names = [
+                        f"bot_{bot_id}",
+                        f"bot-{bot_id}",
+                        f"{bot_id}",
+                        f"bot_{bot_id.replace('-', '_')}",
+                        f"bot{bot_id}"
+                    ]
+                    app.logger.info(f"[RAG] Checking possible bot collection names: {possible_names}")
                     
-                    # Check if conversation has a bot_id field
-                    if conversation and 'bot_id' in conversation:
-                        bot_id = conversation['bot_id']
-                        bot_collection = f"bot_{bot_id}"
-                        app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id} from bot_id field")
-                        # Add bot_id to data for future processing
-                        data['bot_id'] = bot_id
-                    # Check if conversation model starts with 'bot:'
-                    elif conversation and 'model' in conversation and conversation['model'].startswith('bot:'):
-                        # Extract bot ID from model string
-                        bot_id = conversation['model'].split(':', 1)[1]
-                        bot_collection = f"bot_{bot_id}"
-                        app.logger.info(f"[RAG] Found bot {bot_id} associated with conversation {conversation_id} from model field")
-                        # Add bot_id to data for future processing
-                        data['bot_id'] = bot_id
+                    for name in possible_names:
+                        if name in available_collections:
+                            app.logger.info(f"[RAG] Found potential bot collection match: '{name}'")
+                            # Check if it has documents
+                            try:
+                                doc_count = rag.count_documents(name)
+                                app.logger.info(f"[RAG] Potential bot collection '{name}' has {doc_count} documents")
+                                if doc_count > 0:
+                                    app.logger.info(f"[RAG] Trying potential bot collection '{name}' with {doc_count} documents")
+                            except Exception as e:
+                                app.logger.error(f"[RAG] Error checking potential bot collection '{name}': {str(e)}")
+            except Exception as e:
+                app.logger.error(f"[RAG] Error listing collections: {str(e)}")
+                
+            # Get bot information
+            try:
+                bot = Bot.get(bot_id)
+                if bot:
+                    app.logger.info(f"[RAG] Found bot: {bot.name} (ID: {bot.id})")
+                    if bot.knowledge_files:
+                        app.logger.info(f"[RAG] Bot has {len(bot.knowledge_files)} knowledge files: {bot.knowledge_files}")
                     else:
-                        app.logger.info(f"[RAG] No bot associated with conversation {conversation_id}")
-                        bot_collection = None
-                        app.logger.info(f"[RAG] No bot explicitly selected - skipping RAG")
-                        use_rag = False  # Explicitly disable RAG
-                except Exception as e:
-                    app.logger.error(f"[RAG] Error getting conversation bot: {str(e)}")
-                    bot_collection = None
+                        app.logger.info(f"[RAG] Bot has no knowledge files")
+            except Exception as e:
+                app.logger.error(f"[RAG] Error getting bot information: {str(e)}")
+                
+        # Now check if we need to update the rag.py to support the bot_collection parameter
+        # If the rag.retrieve_context function doesn't support the bot_collection parameter yet,
+        # it will fail and fall back to the old behavior
+
             
             # Check bot's knowledge base if we have a bot_id
             if bot_id and bot_collection:
@@ -931,10 +988,10 @@ def generate():
                             app.logger.error(f"[RAG] Error checking bot collection: {str(e)}")
                             app.logger.info(f"[RAG] Falling back to has_documents check")
                             
-                            # Fallback to original check
+                            # We no longer use fallbacks - RAG can only be enabled through our explicit conditions
                             if rag.has_documents(collection_name=bot_collection):
-                                app.logger.info(f"[RAG] Documents found for bot {bot_id} using fallback check")
-                                use_rag = True
+                                app.logger.info(f"[RAG] Documents found for bot {bot_id} using fallback check, but not enabling RAG")
+                                # We don't set use_rag = True here anymore to ensure RAG only runs under our specified conditions
                                 
                                 # Log RAG query details
                                 app.logger.info(f"[RAG] Querying bot knowledge with: '{user_message[:100]}...'")
@@ -1038,8 +1095,10 @@ def generate():
                                     retrieval_time = time.time() - retrieval_start
                                     
                                     if alt_context:
+                                        # We don't set RAG to True here anymore - only enabled through our explicit rules
+                                        app.logger.info(f"[RAG] Found context in potential bot collection, but not enabling RAG")
+                                        # Storing the context but NOT enabling RAG outside our rules
                                         retrieved_context = alt_context
-                                        use_rag = True
                                         app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from potential bot collection '{coll_name}' in {retrieval_time:.2f}s")
                                         app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
                                         break
@@ -1082,86 +1141,23 @@ def generate():
                     except Exception as e:
                         app.logger.error(f"[RAG] Error checking conversation model: {str(e)}")
                 
-                # Only check all remaining collections if explicitly requested AND RAG is enabled
+                # We no longer check all remaining collections - RAG only runs under our specified conditions
                 check_all_collections = data.get('check_all_collections', False)
                 if not retrieved_context and check_all_collections and rag_enabled:
-                    app.logger.info(f"[RAG] Checking all remaining collections for relevant content (explicitly requested)")
-                    for coll_name in collection_names:
-                        # Skip collections we already checked
-                        if bot_id and any(possible_name in coll_name for possible_name in possible_bot_collections):
-                            continue
+                    app.logger.info(f"[RAG] Check all collections feature is disabled to ensure RAG only runs under specified conditions")
+                    # We don't check all collections anymore to ensure RAG only runs under our specified conditions
                             
-                        try:
-                            # Try to get document count
-                            vectorstore = rag.Chroma(
-                                persist_directory=rag.CHROMA_PERSIST_DIR, 
-                                embedding_function=rag.ollama_ef, 
-                                collection_name=coll_name
-                            )
-                            count = vectorstore._collection.count()
-                            app.logger.info(f"[RAG] Collection '{coll_name}' has {count} documents")
-                            
-                            # If this collection has documents, try using it
-                            if count > 0 and not retrieved_context:
-                                app.logger.info(f"[RAG] Trying collection '{coll_name}' with {count} documents")
-                                retrieval_start = time.time()
-                                alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
-                                retrieval_time = time.time() - retrieval_start
-                                
-                                if alt_context:
-                                    retrieved_context = alt_context
-                                    use_rag = True
-                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from collection '{coll_name}' in {retrieval_time:.2f}s")
-                                    app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
-                                    break
-                        except Exception as ce:
-                            app.logger.error(f"[RAG] Error checking collection '{coll_name}': {str(ce)}")
-                            
-                # Check for collections with large document counts (likely our XML data)
-                # Only if RAG is enabled
+                # We no longer check other collections - RAG only runs under our specified conditions
+                # No additional RAG triggering conditions
                 if not retrieved_context and rag_enabled:
-                    app.logger.info(f"[RAG] Looking for collections with large document counts")
-                    
-                    # Sort collections by document count
-                    collection_counts = []
-                    for coll_name in collection_names:
-                        try:
-                            vectorstore = rag.Chroma(
-                                persist_directory=rag.CHROMA_PERSIST_DIR, 
-                                embedding_function=rag.ollama_ef, 
-                                collection_name=coll_name
-                            )
-                            count = vectorstore._collection.count()
-                            collection_counts.append((coll_name, count))
-                        except Exception as e:
-                            app.logger.error(f"[RAG] Error getting count for collection '{coll_name}': {str(e)}")
-                    
-                    # Sort by count (descending)
-                    collection_counts.sort(key=lambda x: x[1], reverse=True)
-                    app.logger.info(f"[RAG] Collection counts: {collection_counts}")
-                    
-                    # Try the largest collections first
-                    for coll_name, count in collection_counts:
-                        if not retrieved_context and count > 1000:
-                            app.logger.info(f"[RAG] Trying large collection '{coll_name}' with {count} documents")
-                            try:
-                                retrieval_start = time.time()
-                                alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
-                                retrieval_time = time.time() - retrieval_start
-                                
-                                if alt_context:
-                                    retrieved_context = alt_context
-                                    use_rag = True
-                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from large collection '{coll_name}' in {retrieval_time:.2f}s")
-                                    app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
-                                    break
-                            except Exception as ce:
-                                app.logger.error(f"[RAG] Error checking large collection '{coll_name}': {str(ce)}")
-                                
-                # If we found a collection with our data, log it for future reference
-                if use_rag and bot_id:
-                    app.logger.info(f"[RAG] For future reference, bot {bot_id} should use collection '{coll_name}'")
-                    # TODO: We could store this mapping for future use
+                    app.logger.info(f"[RAG] All additional RAG features are disabled to ensure RAG only runs under specified conditions")
+                    # RAG can only be enabled through our explicit rule conditions
+                
+                # Log if RAG is enabled for debugging
+                if use_rag:
+                    app.logger.info(f"[RAG] RAG is enabled according to our specified conditions")
+                else:
+                    app.logger.info(f"[RAG] RAG is disabled according to our specified conditions")
             except Exception as e:
                 app.logger.error(f"[RAG] Error listing collections: {str(e)}")
             
