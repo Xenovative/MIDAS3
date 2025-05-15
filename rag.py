@@ -28,14 +28,22 @@ def get_conversation_collection_name(conversation_id):
 
 # Function to list all available collections
 def list_collections():
-    """List all available collections in the ChromaDB"""
+    """Lists all collections in the ChromaDB."""
     try:
-        import chromadb
-        client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
-        collections = client.list_collections()
-        return [c.name for c in collections]
+        client = chromadb.PersistentClient(
+            path=CHROMA_PERSIST_DIR,
+            settings=chromadb.Settings(
+                chroma_client_auth_provider="chromadb.auth.token.TokenAuthClientProvider",
+                chroma_client_auth_credentials="",
+                anonymized_telemetry=False,
+                allow_reset=True,
+                chroma_server_max_batch_size=1000,
+                chroma_server_grpc_max_receive_message_length=41943040,
+            )
+        )
+        return [coll.name for coll in client.list_collections()]
     except Exception as e:
-        print(f"Error listing collections: {str(e)}")
+        print(f"Error listing collections: {e}")
         return []
 
 # Ensure ChromaDB persistence directory exists
@@ -324,7 +332,53 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=2000, operation_id=None, recursive_depth=0, max_recursive_depth=1):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=2000, operation_id=None, recursive_depth=0, max_recursive_depth=1, force_direct=False):
+    # Deal with empty inputs
+    if not query or query.strip() == "":
+        print("Empty query provided, returning empty context")
+        return ""
+        
+    # Direct grab of collection content for Chinese queries
+    is_chinese = any('\u4e00' <= char <= '\u9fff' for char in query)
+    if (is_chinese and bot_collection) or force_direct:
+        print(f"CHINESE QUERY DETECTED! Attempting direct collection access for {bot_collection}")
+        try:
+            # Skip all the complex logic and just get documents directly
+            client = chromadb.PersistentClient(
+                path=CHROMA_PERSIST_DIR,
+                settings=chromadb.Settings(
+                    anonymized_telemetry=False,
+                    allow_reset=True,
+                    chroma_server_max_batch_size=1000, 
+                    chroma_server_grpc_max_receive_message_length=41943040,
+                )
+            )
+            
+            # Try to get the collection
+            try:
+                coll = client.get_collection(name=bot_collection)
+                doc_count = coll.count()
+                
+                if doc_count > 0:
+                    print(f"DIRECT ACCESS: Found {doc_count} documents in {bot_collection}")
+                    
+                    # Just get a reasonable number of documents directly
+                    sample_size = min(doc_count, 200)
+                    print(f"Getting {sample_size} document samples directly")
+                    
+                    # Get documents directly
+                    results = coll.peek(limit=sample_size)
+                    
+                    if results and 'documents' in results and len(results['documents']) > 0:
+                        # Join them together
+                        doc_text = "\n\n---\n\n".join(results['documents'])
+                        print(f"SUCCESS! Retrieved {len(doc_text)} characters of document text directly")
+                        return doc_text
+            except Exception as coll_err:
+                print(f"Error getting collection {bot_collection}: {coll_err}")
+        except Exception as e:
+            print(f"Failed direct collection access: {e}")
+            # Continue with normal processing
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
