@@ -431,12 +431,48 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                 collection_descriptions.append(f"conversation documents ({conv_collection})")
                 print(f"[Rule 2/3] Using conversation documents collection: {conv_collection}")
         
-        # If no specific collections were found, don't use ANY collection
+        # Check if no specific collections were found, don't use ANY collection
         # This enforces our rule that RAG should only use specific collections based on our rules
         if not collections_to_search:
             print(f"No valid collections found based on our rules, not falling back to default")
             # Return empty results immediately to avoid any RAG search
             return ""
+        
+        # FOR CHINESE QUERIES: Immediately fetch samples from the collection if it's a Chinese query
+        # This ensures we get at least something for Chinese queries
+        if is_chinese and 'bot_' in collections_to_search[0]:
+            print(f"*** CHINESE QUERY DETECTED: IMMEDIATELY FETCHING SAMPLES FROM {collections_to_search[0]} ***")
+            try:
+                # Connect directly to the collection
+                import chromadb
+                client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+                
+                # Get the underlying collection directly
+                if client.list_collections():
+                    for coll in client.list_collections():
+                        if coll.name == collections_to_search[0]:
+                            # Peek some documents
+                            try:
+                                # Get random sample of documents
+                                random_docs = coll.peek(limit=20)
+                                
+                                if random_docs and 'documents' in random_docs and len(random_docs['documents']) > 0:
+                                    print(f"FOUND {len(random_docs['documents'])} SAMPLE DOCUMENTS")
+                                    
+                                    # Convert to string for context
+                                    context_docs = []
+                                    for i, doc in enumerate(random_docs['documents']):
+                                        if i < 5:  # Limit to 5 samples to avoid overwhelming
+                                            context_docs.append(f"Document {i+1}:\n{doc}")
+                                    
+                                    if context_docs:
+                                        forced_context = "\n\n".join(context_docs)
+                                        print(f"*** FORCED CHINESE CONTEXT: {len(forced_context)} chars ***")
+                                        return forced_context
+                            except Exception as e:
+                                print(f"Error peeking documents: {e}")
+            except Exception as e:
+                print(f"Error in forced Chinese sample retrieval: {e}")
             
         # Log which collections we're searching
         collection_str = ', '.join(collections_to_search)

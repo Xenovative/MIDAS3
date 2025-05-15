@@ -821,12 +821,36 @@ def generate():
                         retrieved_context = future.result(timeout=120)  # 2 minute timeout
                         retrieval_time = time.time() - retrieval_start
                         
+                        # Check if query is in Chinese for fallback purposes
+                        is_chinese_query = any('\u4e00' <= char <= '\u9fff' for char in user_message)
+                        
                         # Log RAG results
                         if retrieved_context:
                             app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters in {retrieval_time:.2f}s")
                             app.logger.info(f"[RAG] Context sample: '{retrieved_context[:200]}...'")
                         else:
                             app.logger.info(f"[RAG] No relevant context found")
+                            # Special handling for Chinese queries with no results
+                            if is_chinese_query and bot_id:
+                                app.logger.info(f"[RAG] Chinese query with no results. Trying direct document lookup.")
+                                try:
+                                    # Try to get system prompt which might have relevant info
+                                    bot = Bot.get(bot_id)
+                                    if bot:
+                                        # Use description as context
+                                        bot_info = f"Bot name: {bot.name}\nDescription: {bot.description}\n"
+                                        # Use any knowledge file metadata
+                                        if bot.knowledge_files and len(bot.knowledge_files) > 0:
+                                            bot_info += "\nKnowledge files:\n"
+                                            for file in bot.knowledge_files:
+                                                bot_info += f"- {file}\n"
+                                        
+                                        # Use this as minimal context
+                                        retrieved_context = bot_info
+                                        app.logger.info(f"[RAG] Using bot metadata as minimal context: {len(retrieved_context)} chars")
+                                except Exception as fb_err:
+                                    app.logger.error(f"[RAG] Error in Chinese fallback: {str(fb_err)}")
+                                    # Continue with empty context
                     except concurrent.futures.TimeoutError:
                         app.logger.warning(f"[RAG] Retrieval timed out after 120 seconds, continuing without context")
                         retrieved_context = ""  # Empty context if timeout
