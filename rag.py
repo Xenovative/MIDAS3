@@ -339,10 +339,71 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         str: The retrieved context as a string
     """
     try:
-        # Generate operation_id if not provided
+        # Generate a unique operation ID if not provided
         if operation_id is None:
             operation_id = f"rag_{uuid.uuid4().hex[:8]}"
             
+        # Check if query is in Chinese - do this first so we have it for all processing
+        is_chinese = any('\u4e00' <= char <= '\u9fff' for char in query)
+        print(f"!!! QUERY LANGUAGE DETECTION: {'CHINESE' if is_chinese else 'NON-CHINESE'} !!!")
+        print(f"!!! QUERY: '{query[:50]}...' !!!")
+        
+        # Define query preprocessing function here so it's available immediately
+        # Enhanced preprocessing function
+        def preprocess_query(text, is_chinese=False):
+            # Special handling for Chinese text
+            if is_chinese:
+                # Remove Chinese punctuation but preserve the core characters
+                text = re.sub(r'[，。？！：；''""（）【】《》、～]', ' ', text)
+                
+                # Generate character n-grams for Chinese text (each character is meaningful)
+                chars = [c for c in text if '\u4e00' <= c <= '\u9fff']
+                
+                # Create 2-character and 3-character combinations
+                char_bigrams = [chars[i] + chars[i+1] for i in range(len(chars)-1)] if len(chars) > 1 else []
+                char_trigrams = [chars[i] + chars[i+1] + chars[i+2] for i in range(len(chars)-2)] if len(chars) > 2 else []
+                
+                # For longer Chinese text, also add some 4-character combinations (common in Chinese)
+                char_quadgrams = [chars[i] + chars[i+1] + chars[i+2] + chars[i+3] for i in range(len(chars)-3)] if len(chars) > 3 else []
+                
+                # Combine all to enhance search matching capability
+                enhanced_terms = chars + char_bigrams + char_trigrams + char_quadgrams
+                enhanced_query = text + ' ' + ' '.join(enhanced_terms)
+                
+                print(f"Enhanced Chinese query with {len(enhanced_terms)} additional terms")
+                return enhanced_query
+            # For non-Chinese text
+            else:
+                # Convert to lowercase
+                text = text.lower()
+                # Remove punctuation but preserve important symbols
+                text = re.sub(f'[{re.escape(punctuation.replace("-", "").replace("_", ""))}]', ' ', text)
+                # Remove extra whitespace
+                text = re.sub(r'\s+', ' ', text).strip()
+                
+                # Extract key phrases (2-3 word combinations) to improve matching
+                words = text.split()
+                if len(words) > 1:
+                    # Add bigrams and trigrams to the query
+                    bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words)-1)]
+                    trigrams = [f"{words[i]} {words[i+1]} {words[i+2]}" for i in range(len(words)-2)] if len(words) > 2 else []
+                    
+                    # Combine original query with key phrases
+                    enhanced_query = f"{text} {' '.join(bigrams)} {' '.join(trigrams)}"
+                    return enhanced_query
+            return text
+            
+        # Process the query right away to make sure it's available throughout the function
+        # Import requirements for preprocessing
+        import re
+        from string import punctuation
+        
+        # Apply preprocessing based on language
+        processed_query = preprocess_query(query, is_chinese)
+        print(f"Original query: '{query[:50]}...'")
+        print(f"Processed query: '{processed_query[:50]}...'")
+        print(f"Processed length: {len(processed_query)} chars")
+        
         # Initialize progress tracking
         create_progress(
             operation_id=operation_id,
@@ -389,7 +450,8 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         update_progress(operation_id, current_step=3, description="Setting up vector database connections")
         
         # Function to process a single collection
-        def process_collection(collection_name, search_percentage=0.2):
+        def process_collection(collection_name, search_percentage=0.2, is_chinese=is_chinese):
+            print(f"Processing collection {collection_name} for {'CHINESE' if is_chinese else 'NON-CHINESE'} query")
             try:
                 print(f"Processing collection: {collection_name}")
                 # Connect to the collection
@@ -446,9 +508,58 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                         }
                     )
                 
-                # Get documents from this collection
-                results = retriever.get_relevant_documents(processed_query)
-                print(f"Retrieved {len(results)} documents from collection {collection_name}")
+                # Get documents from this collection with debug output
+                print(f"*** EXECUTING SEARCH FOR: '{processed_query[:50]}...' ***")
+                print(f"*** COLLECTION: {collection_name}, CHINESE: {is_chinese} ***")
+                
+                try:
+                    # Try the enhanced retriever first
+                    results = retriever.get_relevant_documents(processed_query)
+                    print(f"Retrieved {len(results)} documents from collection {collection_name} using retriever")
+                    
+                    # If Chinese query and no results, try direct similarity search
+                    if is_chinese and len(results) == 0:
+                        print("*** CHINESE QUERY WITH NO RESULTS - TRYING DIRECT SIMILARITY SEARCH ***")
+                        # Try direct similarity search with very low threshold
+                        results = vectorstore.similarity_search(query, k=50, score_threshold=0.01)
+                        print(f"Direct similarity search retrieved {len(results)} documents")
+                except Exception as e:
+                    print(f"Error in retrieval: {e}")
+                    # If error, try basic similarity as backup
+                    try:
+                        results = vectorstore.similarity_search(query, k=50)
+                        print(f"Fallback similarity search retrieved {len(results)} documents")
+                    except Exception as e2:
+                        print(f"Error in fallback retrieval: {e2}")
+                        results = []
+                
+                print(f"Final result count from collection {collection_name}: {len(results)}")
+                
+                # Absolute last resort for Chinese queries
+                if is_chinese and len(results) == 0 and 'bot_' in collection_name:
+                    # Just return ANY documents for bot collections
+                    print("*** LAST RESORT: RETRIEVING SAMPLE DOCUMENTS FROM BOT COLLECTION ***")
+                    try:
+                        # Get any documents from collection
+                        query_sample = vectorstore._collection.peek(limit=10)
+                        if query_sample and len(query_sample['documents']) > 0:
+                            from langchain_core.documents import Document
+                            
+                            # Create Document objects from raw docs
+                            sample_docs = []
+                            for i, doc in enumerate(query_sample['documents']):
+                                if i < 5:  # Limit to 5 samples
+                                    metadata = {}
+                                    # Add metadata if available
+                                    if query_sample['metadatas'] and len(query_sample['metadatas']) > i:
+                                        metadata = query_sample['metadatas'][i]
+                                    sample_docs.append(Document(page_content=doc, metadata=metadata))
+                            
+                            results = sample_docs
+                            print(f"Retrieved {len(results)} sample documents as last resort")
+                    except Exception as e:
+                        print(f"Error in last resort retrieval: {e}")
+                        results = []
                 
                 # Add metadata about which collection the results came from
                 for doc in results:
@@ -544,60 +655,15 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         update_progress(operation_id, current_step=7, 
                        description=f"Retrieved a total of {len(results)} documents")
         
-        # Preprocess query to improve retrieval effectiveness
-        # 1. Detect language
-        is_chinese = any('\u4e00' <= char <= '\u9fff' for char in query)
+        # We already detected Chinese language at the beginning of the function
+        # No need to detect again here
         
         # 2. Remove stopwords and normalize
         import re
         from string import punctuation
         
-        # Enhanced preprocessing function
-        def preprocess_query(text, is_chinese=False):
-            # Special handling for Chinese text
-            if is_chinese:
-                # Remove Chinese punctuation but preserve the core characters
-                text = re.sub(r'[，。？！：；''""（）【】《》、～]', ' ', text)
-                
-                # Generate character n-grams for Chinese text (each character is meaningful)
-                chars = [c for c in text if '\u4e00' <= c <= '\u9fff']
-                
-                # Create 2-character and 3-character combinations
-                char_bigrams = [chars[i] + chars[i+1] for i in range(len(chars)-1)] if len(chars) > 1 else []
-                char_trigrams = [chars[i] + chars[i+1] + chars[i+2] for i in range(len(chars)-2)] if len(chars) > 2 else []
-                
-                # For longer Chinese text, also add some 4-character combinations (common in Chinese)
-                char_quadgrams = [chars[i] + chars[i+1] + chars[i+2] + chars[i+3] for i in range(len(chars)-3)] if len(chars) > 3 else []
-                
-                # Combine all to enhance search matching capability
-                enhanced_terms = chars + char_bigrams + char_trigrams + char_quadgrams
-                enhanced_query = text + ' ' + ' '.join(enhanced_terms)
-                
-                print(f"Enhanced Chinese query with {len(enhanced_terms)} additional terms")
-                return enhanced_query
-            # For non-Chinese text
-            else:
-                # Convert to lowercase
-                text = text.lower()
-                # Remove punctuation but preserve important symbols
-                text = re.sub(f'[{re.escape(punctuation.replace("-", "").replace("_", ""))}]', ' ', text)
-                # Remove extra whitespace
-                text = re.sub(r'\s+', ' ', text).strip()
-                
-                # Extract key phrases (2-3 word combinations) to improve matching
-                words = text.split()
-                if len(words) > 1:
-                    # Add bigrams and trigrams to the query
-                    bigrams = [f"{words[i]} {words[i+1]}" for i in range(len(words)-1)]
-                    trigrams = [f"{words[i]} {words[i+1]} {words[i+2]}" for i in range(len(words)-2)] if len(words) > 2 else []
-                    
-                    # Combine original query with key phrases
-                    enhanced_query = f"{text} {' '.join(bigrams)} {' '.join(trigrams)}"
-                    return enhanced_query
-            return text
-        
-        # Apply preprocessing
-        processed_query = preprocess_query(query, is_chinese)
+        # We already processed the query at the beginning - no need to do it again
+        # Just use the existing processed_query variable
         
         print(f"Querying vector store for: '{query[:50]}...'")
         print(f"Query language detected: {'Chinese' if is_chinese else 'Other'}")
