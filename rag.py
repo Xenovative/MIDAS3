@@ -7,9 +7,14 @@ from langchain_community.vectorstores import Chroma
 from langchain.embeddings.cache import CacheBackedEmbeddings
 from langchain.storage import LocalFileStore
 from config import OLLAMA_HOST
+import pandas as pd
+import sys
 
 # Import custom loaders
 from custom_loaders import ChineseTheologyXMLLoader, ChineseTheologyXMLDirectoryLoader
+
+# Import hybrid search
+from hybrid_search import hybrid_search, process_with_retry
 
 # Import progress tracker
 from progress_tracker import create_progress, update_progress, get_progress
@@ -28,22 +33,14 @@ def get_conversation_collection_name(conversation_id):
 
 # Function to list all available collections
 def list_collections():
-    """Lists all collections in the ChromaDB."""
+    """List all available collections in the ChromaDB"""
     try:
-        client = chromadb.PersistentClient(
-            path=CHROMA_PERSIST_DIR,
-            settings=chromadb.Settings(
-                chroma_client_auth_provider="chromadb.auth.token.TokenAuthClientProvider",
-                chroma_client_auth_credentials="",
-                anonymized_telemetry=False,
-                allow_reset=True,
-                chroma_server_max_batch_size=1000,
-                chroma_server_grpc_max_receive_message_length=41943040,
-            )
-        )
-        return [coll.name for coll in client.list_collections()]
+        import chromadb
+        client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+        collections = client.list_collections()
+        return [c.name for c in collections]
     except Exception as e:
-        print(f"Error listing collections: {e}")
+        print(f"Error listing collections: {str(e)}")
         return []
 
 # Ensure ChromaDB persistence directory exists
@@ -56,11 +53,31 @@ DEFAULT_EMBED_MODEL = "herald/dmeta-embedding-zh" if "herald/dmeta-embedding-zh"
 # Set up local file store for caching embeddings
 store = LocalFileStore("./cache/embeddings")
 
+# Adding secondary embeddings models for hybrid search approach
+SECONDARY_EMBED_MODELS = [
+    "mxbai-embed-large" if "mxbai-embed-large" in os.environ.get('AVAILABLE_EMBEDDING_MODELS', "") else None,
+    "bge-large-zh" if "bge-large-zh" in os.environ.get('AVAILABLE_EMBEDDING_MODELS', "") else None
+]
+SECONDARY_EMBED_MODELS = [model for model in SECONDARY_EMBED_MODELS if model]
+
 # Create base embeddings model
 base_embeddings = OllamaEmbeddings(
     base_url=OLLAMA_HOST,
     model=DEFAULT_EMBED_MODEL
 )
+
+# Create secondary embeddings if available
+secondary_embeddings = []
+for model in SECONDARY_EMBED_MODELS:
+    try:
+        emb = OllamaEmbeddings(
+            base_url=OLLAMA_HOST,
+            model=model
+        )
+        secondary_embeddings.append(emb)
+        print(f"Added secondary embedding model: {model}")
+    except Exception as e:
+        print(f"Failed to load secondary embedding model {model}: {e}")
 
 # Create cached embeddings to improve performance
 ollama_ef = CacheBackedEmbeddings.from_bytes_store(
@@ -332,53 +349,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=2000, operation_id=None, recursive_depth=0, max_recursive_depth=1, force_direct=False):
-    # Deal with empty inputs
-    if not query or query.strip() == "":
-        print("Empty query provided, returning empty context")
-        return ""
-        
-    # Direct grab of collection content for Chinese queries
-    is_chinese = any('\u4e00' <= char <= '\u9fff' for char in query)
-    if (is_chinese and bot_collection) or force_direct:
-        print(f"CHINESE QUERY DETECTED! Attempting direct collection access for {bot_collection}")
-        try:
-            # Skip all the complex logic and just get documents directly
-            client = chromadb.PersistentClient(
-                path=CHROMA_PERSIST_DIR,
-                settings=chromadb.Settings(
-                    anonymized_telemetry=False,
-                    allow_reset=True,
-                    chroma_server_max_batch_size=1000, 
-                    chroma_server_grpc_max_receive_message_length=41943040,
-                )
-            )
-            
-            # Try to get the collection
-            try:
-                coll = client.get_collection(name=bot_collection)
-                doc_count = coll.count()
-                
-                if doc_count > 0:
-                    print(f"DIRECT ACCESS: Found {doc_count} documents in {bot_collection}")
-                    
-                    # Just get a reasonable number of documents directly
-                    sample_size = min(doc_count, 200)
-                    print(f"Getting {sample_size} document samples directly")
-                    
-                    # Get documents directly
-                    results = coll.peek(limit=sample_size)
-                    
-                    if results and 'documents' in results and len(results['documents']) > 0:
-                        # Join them together
-                        doc_text = "\n\n---\n\n".join(results['documents'])
-                        print(f"SUCCESS! Retrieved {len(doc_text)} characters of document text directly")
-                        return doc_text
-            except Exception as coll_err:
-                print(f"Error getting collection {bot_collection}: {coll_err}")
-        except Exception as e:
-            print(f"Failed direct collection access: {e}")
-            # Continue with normal processing
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=2000, operation_id=None, recursive_depth=0, max_recursive_depth=1):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
@@ -499,29 +470,7 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             try:
                 # Connect directly to the collection
                 import chromadb
-                client = chromadb.PersistentClient(
-                    path=CHROMA_PERSIST_DIR,
-                    settings=chromadb.Settings(
-                        chroma_client_auth_provider="chromadb.auth.token.TokenAuthClientProvider",
-                        chroma_client_auth_credentials="",
-                        anonymized_telemetry=False,
-                        allow_reset=True,
-                        # Increase limits to ensure we can handle large collections
-                        chroma_server_max_batch_size=1000,  # Default is 100
-                        chroma_server_grpc_max_receive_message_length=41943040,  # 40MB instead of default 4MB
-                    )
-                )
-                
-                # Check if collection exists and create if it doesn't
-                try:
-                    # Get or create conversation collection
-                    conversation_collection = client.get_or_create_collection(
-                        name=collection_name,
-                        metadata={"hnsw:space": "cosine"}
-                    )
-                except Exception as e:
-                    print(f"Error getting or creating collection: {e}")
-                    return ""
+                client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
                 
                 # Get the underlying collection directly
                 if client.list_collections():
@@ -529,7 +478,7 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                         if coll.name == collections_to_search[0]:
                             # Peek some documents
                             try:
-                                # Get larger random sample of documents for deeper context
+                                                # Get larger random sample of documents for deeper context
                                 random_docs = coll.peek(limit=50)  # Increased from 20 to 50
                                 
                                 if random_docs and 'documents' in random_docs and len(random_docs['documents']) > 0:
@@ -580,19 +529,17 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                     docs_in_collection = client.get_collection(collection_name).count()
                     print(f"Collection {collection_name} has {docs_in_collection} documents")
                     
-                    # For maximum depth, read the entire collection directly for Chinese queries
-                    # or small collections regardless of language
-                    if (is_chinese or docs_in_collection <= 300):
-                        print(f"READING ENTIRE COLLECTION ({docs_in_collection} docs)")
+                    # For truly maximum depth, when collections are under a threshold,
+                    # just read the entire collection directly
+                    if docs_in_collection > 0 and docs_in_collection <= 100:
+                        print(f"SMALL COLLECTION DETECTED ({docs_in_collection} docs) - READING ENTIRE COLLECTION")
                         try:
-                            print(f"Getting all {docs_in_collection} documents directly")
-                            # Get everything in one go if possible
+                            # For small collections, just get everything
                             all_docs = client.get_collection(collection_name).peek(limit=docs_in_collection)
-                            
                             if all_docs and 'documents' in all_docs and len(all_docs['documents']) > 0:
-                                # Use all documents without embedding search for full coverage
+                                # Use all documents without embedding search
                                 full_collection_text = "\n\n".join(all_docs['documents'])
-                                print(f"Using FULL collection text: {len(full_collection_text)} chars")
+                                print(f"Using full collection text: {len(full_collection_text)} chars")
                                 return full_collection_text
                         except Exception as full_e:
                             print(f"Failed to get full collection: {full_e}")
@@ -610,33 +557,80 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                     
                     # Use different retrieval strategies for Chinese vs non-Chinese queries
                     if is_chinese:
-                        # Always use ENTIRE collection for Chinese queries
-                        search_percentage = 1.0  # Use 100% of documents
-                        k_value = docs_in_collection  # Get ALL documents
-                        fetch_k = docs_in_collection  # Fetch ALL candidates
+                        # Ultra aggressive retrieval for Chinese queries to maximize depth
+                        search_percentage = max(search_percentage, 0.9)  # Increase to 90% of documents
+                        k_value = min(int(docs_in_collection * search_percentage), n_results)
+                        fetch_k = min(docs_in_collection, max(k_value * 5, 5000))  # Fetch massively more candidates
                         print(f"Using CHINESE retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
+                        
+                        # For Chinese text, use advanced hybrid search - the ultimate depth strategy
+                        print(f"*** EXECUTING ULTRA-HYBRID SEARCH FOR CHINESE QUERY: '{processed_query[:50]}...' ***")
+                        print(f"*** COLLECTION: {collection_name} ***")
+                        
+                        # Create a list of embedding functions starting with primary
+                        embedding_functions = [ollama_ef]
+                        
+                        # Add secondary embedding functions if available
+                        if hasattr(sys.modules[__name__], 'secondary_embeddings') and secondary_embeddings:
+                            for emb in secondary_embeddings:
+                                try:
+                                    # Create cached version
+                                    cached_emb = CacheBackedEmbeddings.from_bytes_store(
+                                        underlying_embeddings=emb,
+                                        document_embedding_cache=store,
+                                        namespace=f"secondary_emb_{hash(str(emb))}"
+                                    )
+                                    embedding_functions.append(cached_emb)
+                                except Exception as e:
+                                    print(f"Error adding secondary embedding: {e}")
+                        
+                        # Execute hybrid search with all available embedding models
+                        try:
+                            results = hybrid_search(
+                                query=processed_query,
+                                collection_name=collection_name,
+                                embedding_functions=embedding_functions,
+                                k=k_value,
+                                fetch_k=fetch_k,
+                                threshold=0.01,  # Ultra-low threshold
+                                is_chinese=True
+                            )
+                            print(f"Hybrid search retrieved {len(results)} documents from {collection_name}")
+                        except Exception as e:
+                            print(f"Error in hybrid search: {e}")
+                            # Fall back to standard retrieval
+                            try:
+                                # For Chinese text, use similarity search with extremely low threshold for maximum depth
+                                # This helps find even tenuous matches in the collection
+                                print(f"Falling back to standard search with fetch_k={fetch_k}")
+                                retriever = vectorstore.as_retriever(
+                                    search_type="similarity",  # Use basic similarity instead of MMR for Chinese
+                                    search_kwargs={
+                                        "k": k_value,
+                                        "fetch_k": fetch_k,
+                                        "score_threshold": 0.01,  # Extremely low threshold for maximum recall
+                                    }
+                                )
+                                
+                                # Get documents from this collection with debug output
+                                print(f"*** EXECUTING FALLBACK SEARCH FOR: '{processed_query[:50]}...' ***")
+                                
+                                # Try the enhanced retriever first
+                                results = process_with_retry(retriever.get_relevant_documents, [query], retry_wait=1, max_retries=5)
+                                print(f"Retrieved {len(results)} documents from {collection_name}")
+                            except Exception as e2:
+                                print(f"Error in fallback retrieval: {e2}")
+                                results = []
                     else:
                         # Standard retrieval for non-Chinese queries
                         k_value = min(int(docs_in_collection * search_percentage), n_results)
                         fetch_k = min(docs_in_collection, max(k_value * 2, 500))
                         print(f"Using standard retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
-                    
-                    # Set up the retriever with different parameters for Chinese vs non-Chinese
-                    if is_chinese:
-                        # For Chinese text, NO threshold to ensure we examine the entire collection
-                        # This guarantees we see everything regardless of vector similarity
-                        print(f"Using FULL COLLECTION search for Chinese query - examining ALL {docs_in_collection} documents")
-                        retriever = vectorstore.as_retriever(
-                            search_type="similarity",  # Use basic similarity instead of MMR for Chinese
-                            search_kwargs={
-                                "k": k_value,  # Return ALL docs
-                                "fetch_k": fetch_k,  # Fetch ALL docs
-                                # No lambda_mult for similarity search
-                                "score_threshold": 0.0,  # NO threshold - get EVERYTHING
-                            }
-                        )
-                    else:
+                        
                         # For non-Chinese text, use MMR which works better with English
+                        print(f"*** EXECUTING STANDARD SEARCH FOR: '{processed_query[:50]}...' ***")
+                        print(f"*** COLLECTION: {collection_name} ***")
+                        
                         retriever = vectorstore.as_retriever(
                             search_type="mmr",
                             search_kwargs={
@@ -645,18 +639,14 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                                 "lambda_mult": 0.7
                             }
                         )
-                    
-                    # Get documents from this collection with debug output
-                    print(f"*** EXECUTING SEARCH FOR: '{processed_query[:50]}...' ***")
-                    print(f"*** COLLECTION: {collection_name}, CHINESE: {is_chinese} ***")
-                    
-                    try:
-                        # Try the enhanced retriever first
-                        results = process_with_retry(retriever.get_relevant_documents, [query], retry_wait=1, max_retries=5)
-                        print(f"Retrieved {len(results)} documents from {collection_name}")
-                    except Exception as e:
-                        print(f"Error in retrieval: {e}")
-                        results = []
+                        
+                        # Try the enhanced retriever
+                        try:
+                            results = process_with_retry(retriever.get_relevant_documents, [query], retry_wait=1, max_retries=5)
+                            print(f"Retrieved {len(results)} documents from {collection_name}")
+                        except Exception as e:
+                            print(f"Error in retrieval: {e}")
+                            results = []
                     
                     # RECURSIVE RETRIEVAL - for maximal depth, do a second-level search
                     # on terms found in the top results if we haven't already recursed too deep

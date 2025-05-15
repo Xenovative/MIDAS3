@@ -830,32 +830,9 @@ def generate():
                             app.logger.info(f"[RAG] Context sample: '{retrieved_context[:200]}...'")
                         else:
                             app.logger.info(f"[RAG] No relevant context found")
-                            
-                            # For Chinese, try one more time with the force_direct parameter
-                            if is_chinese_query and bot_id and bot_collection:
-                                app.logger.info(f"[RAG] Chinese query with no results. Trying direct collection access.")
-                                try:
-                                    # Try direct collection access first
-                                    direct_start = time.time()
-                                    direct_future = executor.submit(rag.retrieve_context, 
-                                                      query=user_message, 
-                                                      bot_collection=bot_collection,
-                                                      force_direct=True)  # New parameter
-                                    direct_context = direct_future.result(timeout=60)
-                                    direct_time = time.time() - direct_start
-                                    
-                                    if direct_context and len(direct_context) > 100:
-                                        app.logger.info(f"[RAG] Direct access successful! Got {len(direct_context)} chars in {direct_time:.2f}s")
-                                        retrieved_context = direct_context
-                                    else:
-                                        app.logger.info(f"[RAG] Direct access failed or returned minimal content. Using fallback.")
-                                        # If direct access fails, still fall back to metadata
-                                except Exception as direct_err:
-                                    app.logger.error(f"[RAG] Error in direct access: {str(direct_err)}")
-                                    
-                                # If still no context, use the metadata fallback
-                                if not retrieved_context:
-                                    app.logger.info(f"[RAG] Chinese query with no results. Trying metadata fallback.")
+                            # Special handling for Chinese queries with no results
+                            if is_chinese_query and bot_id:
+                                app.logger.info(f"[RAG] Chinese query with no results. Trying direct document lookup.")
                                 try:
                                     # Try to get system prompt which might have relevant info
                                     bot = Bot.get(bot_id)
