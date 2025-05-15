@@ -26,6 +26,18 @@ def get_conversation_collection_name(conversation_id):
     """Generate a collection name for a specific conversation"""
     return f"conversation_{conversation_id}"
 
+# Function to list all available collections
+def list_collections():
+    """List all available collections in the ChromaDB"""
+    try:
+        import chromadb
+        client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+        collections = client.list_collections()
+        return [c.name for c in collections]
+    except Exception as e:
+        print(f"Error listing collections: {str(e)}")
+        return []
+
 # Ensure ChromaDB persistence directory exists
 os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
 
