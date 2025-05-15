@@ -324,7 +324,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=500, operation_id=None):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=1000, operation_id=None):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
@@ -453,8 +453,8 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                         if coll.name == collections_to_search[0]:
                             # Peek some documents
                             try:
-                                # Get random sample of documents
-                                random_docs = coll.peek(limit=20)
+                                                # Get larger random sample of documents for deeper context
+                                random_docs = coll.peek(limit=50)  # Increased from 20 to 50
                                 
                                 if random_docs and 'documents' in random_docs and len(random_docs['documents']) > 0:
                                     print(f"FOUND {len(random_docs['documents'])} SAMPLE DOCUMENTS")
@@ -462,7 +462,7 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                                     # Convert to string for context
                                     context_docs = []
                                     for i, doc in enumerate(random_docs['documents']):
-                                        if i < 5:  # Limit to 5 samples to avoid overwhelming
+                                        if i < 15:  # Increased from 5 to 15 samples for deeper context
                                             context_docs.append(f"Document {i+1}:\n{doc}")
                                     
                                     if context_docs:
@@ -508,10 +508,10 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                 # Calculate how many documents to fetch based on collection size
                 # Use different retrieval strategies for Chinese vs non-Chinese queries
                 if is_chinese:
-                    # More aggressive retrieval for Chinese queries since they're harder to match
-                    search_percentage = max(search_percentage, 0.35)  # At least 35% of documents
+                    # Very aggressive retrieval for Chinese queries to increase depth
+                    search_percentage = max(search_percentage, 0.75)  # Increase to 75% of documents
                     k_value = min(int(docs_in_collection * search_percentage), n_results)
-                    fetch_k = min(docs_in_collection, max(k_value * 3, 1000))  # Fetch more candidates
+                    fetch_k = min(docs_in_collection, max(k_value * 4, 2000))  # Fetch many more candidates
                     print(f"Using CHINESE retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
                 else:
                     # Standard retrieval for non-Chinese queries
@@ -521,16 +521,16 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                 
                 # Set up the retriever with different parameters for Chinese vs non-Chinese
                 if is_chinese:
-                    # For Chinese text, use similarity search with a lower threshold
+                    # For Chinese text, use similarity search with much lower threshold for depth
                     # This helps find more matches even with slight language differences
-                    print(f"Using similarity search for Chinese query with fetch_k={fetch_k}")
+                    print(f"Using deep similarity search for Chinese query with fetch_k={fetch_k}")
                     retriever = vectorstore.as_retriever(
                         search_type="similarity",  # Use basic similarity instead of MMR for Chinese
                         search_kwargs={
                             "k": k_value,
                             "fetch_k": fetch_k,
                             # No lambda_mult for similarity search
-                            "score_threshold": 0.15,  # Lower threshold to catch more potential matches
+                            "score_threshold": 0.05,  # Much lower threshold to maximize result depth
                         }
                     )
                 else:
@@ -875,14 +875,21 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                         if term_count > 0:
                             # Boost more for multiple occurrences
                             score += term_weight * min(term_count, 3)  # Cap at 3 occurrences
-                            
-                            # Extra boost for terms at the beginning of the content
+                                                       # Extra boost for terms at the beginning of the content
                             if doc.page_content.find(term) < 100:
                                 score += 0.2  # Beginning of content is often more relevant
                                 
-                    # Special boost for exact query match
-                    if query in doc.page_content:
-                        score += 1.0  # Major boost for exact query match
+                # Special boost for exact query match
+                if query in doc.page_content:
+                    score += 1.5  # Increased from 1.0 to 1.5 for stronger exact match boost
+                    
+                    # Additional depth: look for sections with concentrated matches
+                    sections = doc.page_content.split('\n\n')
+                    for section in sections:
+                        if query in section:
+                            # If a specific section has the query, boost it further
+                            section_ratio = len(section)/len(doc.page_content)
+                            score += 0.5 * section_ratio  # More boost for concentrated sections
             else:
                 # For non-Chinese, use more sophisticated word matching
                 query_words = query.lower().split()
