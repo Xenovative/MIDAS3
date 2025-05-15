@@ -445,7 +445,29 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
             try:
                 # Connect directly to the collection
                 import chromadb
-                client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+                client = chromadb.PersistentClient(
+                    path=CHROMA_PERSIST_DIR,
+                    settings=chromadb.Settings(
+                        chroma_client_auth_provider="chromadb.auth.token.TokenAuthClientProvider",
+                        chroma_client_auth_credentials="",
+                        anonymized_telemetry=False,
+                        allow_reset=True,
+                        # Increase limits to ensure we can handle large collections
+                        chroma_server_max_batch_size=1000,  # Default is 100
+                        chroma_server_grpc_max_receive_message_length=41943040,  # 40MB instead of default 4MB
+                    )
+                )
+                
+                # Check if collection exists and create if it doesn't
+                try:
+                    # Get or create conversation collection
+                    conversation_collection = client.get_or_create_collection(
+                        name=collection_name,
+                        metadata={"hnsw:space": "cosine"}
+                    )
+                except Exception as e:
+                    print(f"Error getting or creating collection: {e}")
+                    return ""
                 
                 # Get the underlying collection directly
                 if client.list_collections():
@@ -453,7 +475,7 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                         if coll.name == collections_to_search[0]:
                             # Peek some documents
                             try:
-                                                # Get larger random sample of documents for deeper context
+                                # Get larger random sample of documents for deeper context
                                 random_docs = coll.peek(limit=50)  # Increased from 20 to 50
                                 
                                 if random_docs and 'documents' in random_docs and len(random_docs['documents']) > 0:
@@ -504,17 +526,19 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                     docs_in_collection = client.get_collection(collection_name).count()
                     print(f"Collection {collection_name} has {docs_in_collection} documents")
                     
-                    # For truly maximum depth, when collections are under a threshold,
-                    # just read the entire collection directly
-                    if docs_in_collection > 0 and docs_in_collection <= 100:
-                        print(f"SMALL COLLECTION DETECTED ({docs_in_collection} docs) - READING ENTIRE COLLECTION")
+                    # For maximum depth, read the entire collection directly for Chinese queries
+                    # or small collections regardless of language
+                    if (is_chinese or docs_in_collection <= 300):
+                        print(f"READING ENTIRE COLLECTION ({docs_in_collection} docs)")
                         try:
-                            # For small collections, just get everything
+                            print(f"Getting all {docs_in_collection} documents directly")
+                            # Get everything in one go if possible
                             all_docs = client.get_collection(collection_name).peek(limit=docs_in_collection)
+                            
                             if all_docs and 'documents' in all_docs and len(all_docs['documents']) > 0:
-                                # Use all documents without embedding search
+                                # Use all documents without embedding search for full coverage
                                 full_collection_text = "\n\n".join(all_docs['documents'])
-                                print(f"Using full collection text: {len(full_collection_text)} chars")
+                                print(f"Using FULL collection text: {len(full_collection_text)} chars")
                                 return full_collection_text
                         except Exception as full_e:
                             print(f"Failed to get full collection: {full_e}")
@@ -532,10 +556,10 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                     
                     # Use different retrieval strategies for Chinese vs non-Chinese queries
                     if is_chinese:
-                        # Ultra aggressive retrieval for Chinese queries to maximize depth
-                        search_percentage = max(search_percentage, 0.9)  # Increase to 90% of documents
-                        k_value = min(int(docs_in_collection * search_percentage), n_results)
-                        fetch_k = min(docs_in_collection, max(k_value * 5, 5000))  # Fetch massively more candidates
+                        # Always use ENTIRE collection for Chinese queries
+                        search_percentage = 1.0  # Use 100% of documents
+                        k_value = docs_in_collection  # Get ALL documents
+                        fetch_k = docs_in_collection  # Fetch ALL candidates
                         print(f"Using CHINESE retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
                     else:
                         # Standard retrieval for non-Chinese queries
@@ -545,16 +569,16 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                     
                     # Set up the retriever with different parameters for Chinese vs non-Chinese
                     if is_chinese:
-                        # For Chinese text, use similarity search with extremely low threshold for maximum depth
-                        # This helps find even tenuous matches in the collection
-                        print(f"Using ultra-deep similarity search for Chinese query with fetch_k={fetch_k}")
+                        # For Chinese text, NO threshold to ensure we examine the entire collection
+                        # This guarantees we see everything regardless of vector similarity
+                        print(f"Using FULL COLLECTION search for Chinese query - examining ALL {docs_in_collection} documents")
                         retriever = vectorstore.as_retriever(
                             search_type="similarity",  # Use basic similarity instead of MMR for Chinese
                             search_kwargs={
-                                "k": k_value,
-                                "fetch_k": fetch_k,
+                                "k": k_value,  # Return ALL docs
+                                "fetch_k": fetch_k,  # Fetch ALL docs
                                 # No lambda_mult for similarity search
-                                "score_threshold": 0.01,  # Extremely low threshold for maximum recall
+                                "score_threshold": 0.0,  # NO threshold - get EVERYTHING
                             }
                         )
                     else:
