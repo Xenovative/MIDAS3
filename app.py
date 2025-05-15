@@ -672,11 +672,13 @@ def generate():
         # --- RAG Integration ---
         # Check for documents in conversation or bot's knowledge base (skip for secret)
         use_rag = False
-        retrieved_context = ""
+        # Initialize variables for RAG
+        use_rag = False
         use_conversation_docs = False
         use_bot_knowledge = False
-        
-        # Log the full request data for debugging
+        retrieved_context = None
+        bot_collection = None
+        rag_enabled = False  # New variable to track RAG state
         app.logger.info(f"[RAG] Request data: bot_id={data.get('bot_id')}, conversation_id={conversation_id}")
         
         # Check if bot is selected either via bot_id parameter or model parameter
@@ -767,6 +769,9 @@ def generate():
             else:
                 app.logger.info(f"[RAG] No RAG sources available, disabling RAG")
                 use_rag = False
+                
+            # Update rag_enabled to match use_rag after applying the rules
+            rag_enabled = use_rag
             
         if use_rag and not secret:
             # Generate a unique operation ID for tracking
@@ -1057,53 +1062,56 @@ def generate():
                 from chromadb.config import Settings
                 import chromadb
                 client = chromadb.PersistentClient(path=rag.CHROMA_PERSIST_DIR)
-                collections = client.list_collections()
-                collection_names = [c.name for c in collections]
-                app.logger.info(f"[RAG] Available collections: {collection_names}")
+                app.logger.info(f"[RAG] Looking for information from collections (bot, conversation, etc.)")
+                collection_names = rag.list_collections()
+                app.logger.info(f"[RAG] Found {len(collection_names)} collections: {collection_names}")
                 
-                # Check for possible bot collection name variations
-                if bot_id:
-                    possible_bot_collections = [
-                        f"bot_{bot_id}",                # Standard format
-                        f"bot-{bot_id}",                # With hyphen
-                        bot_id,                         # Just the ID
-                        f"bot_{bot_id.replace('-', '_')}",  # Underscores instead of hyphens
-                        f"bot{bot_id}",                 # No separator
-                    ]
-                    
-                    app.logger.info(f"[RAG] Checking possible bot collection names: {possible_bot_collections}")
-                    
-                    # First check collections that might match our bot ID
-                    for coll_name in collection_names:
-                        if any(possible_name in coll_name for possible_name in possible_bot_collections):
-                            app.logger.info(f"[RAG] Found potential bot collection match: '{coll_name}'")
-                            try:
-                                # Try to get document count
-                                vectorstore = rag.Chroma(
-                                    persist_directory=rag.CHROMA_PERSIST_DIR, 
-                                    embedding_function=rag.ollama_ef, 
-                                    collection_name=coll_name
-                                )
-                                count = vectorstore._collection.count()
-                                app.logger.info(f"[RAG] Potential bot collection '{coll_name}' has {count} documents")
+                # Set the rag_enabled flag based on use_rag variable
+                rag_enabled = use_rag
+                
+                # First, try to see if we already have an exact collection for this bot ID
+                # This helps us avoid checking all collections
+                possible_bot_collections = [
+                    f"bot_{bot_id}",                # Standard format
+                    f"bot-{bot_id}",                # With hyphen
+                    bot_id,                         # Just the ID
+                    f"bot_{bot_id.replace('-', '_')}",  # Underscores instead of hyphens
+                    f"bot{bot_id}",                 # No separator
+                ]
+                
+                app.logger.info(f"[RAG] Checking possible bot collection names: {possible_bot_collections}")
+                
+                # Check collections that might match our bot ID
+                for coll_name in collection_names:
+                    if any(possible_name in coll_name for possible_name in possible_bot_collections):
+                        app.logger.info(f"[RAG] Found potential bot collection match: '{coll_name}'")
+                        try:
+                            # Try to get document count
+                            vectorstore = rag.Chroma(
+                                persist_directory=rag.CHROMA_PERSIST_DIR, 
+                                embedding_function=rag.ollama_ef, 
+                                collection_name=coll_name
+                            )
+                            count = vectorstore._collection.count()
+                            app.logger.info(f"[RAG] Potential bot collection '{coll_name}' has {count} documents")
+                            
+                            # If this collection has documents, try using it
+                            if count > 0 and not retrieved_context:
+                                app.logger.info(f"[RAG] Trying potential bot collection '{coll_name}' with {count} documents")
+                                retrieval_start = time.time()
+                                alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
+                                retrieval_time = time.time() - retrieval_start
                                 
-                                # If this collection has documents, try using it
-                                if count > 0 and not retrieved_context:
-                                    app.logger.info(f"[RAG] Trying potential bot collection '{coll_name}' with {count} documents")
-                                    retrieval_start = time.time()
-                                    alt_context = rag.retrieve_context(user_message, collection_name=coll_name)
-                                    retrieval_time = time.time() - retrieval_start
-                                    
-                                    if alt_context:
-                                        # We don't set RAG to True here anymore - only enabled through our explicit rules
-                                        app.logger.info(f"[RAG] Found context in potential bot collection, but not enabling RAG")
-                                        # Storing the context but NOT enabling RAG outside our rules
-                                        retrieved_context = alt_context
-                                        app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from potential bot collection '{coll_name}' in {retrieval_time:.2f}s")
-                                        app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
-                                        break
-                            except Exception as ce:
-                                app.logger.error(f"[RAG] Error checking potential bot collection '{coll_name}': {str(ce)}")
+                                if alt_context:
+                                    # We don't set RAG to True here anymore - only enabled through our explicit rules
+                                    app.logger.info(f"[RAG] Found context in potential bot collection, but not enabling RAG")
+                                    # Storing the context but NOT enabling RAG outside our rules
+                                    retrieved_context = alt_context
+                                    app.logger.info(f"[RAG] Retrieved {len(retrieved_context)} characters from potential bot collection '{coll_name}' in {retrieval_time:.2f}s")
+                                    app.logger.info(f"[RAG] Content sample: '{retrieved_context[:200]}...'")
+                                    break
+                        except Exception as e:
+                            app.logger.error(f"[RAG] Error checking collection '{coll_name}': {str(e)}")
                 
                 # If still no context, check if we should try the bot collection directly
                 # This happens when the conversation is associated with a bot but the bot_id wasn't explicitly passed
