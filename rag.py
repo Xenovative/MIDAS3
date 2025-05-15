@@ -408,20 +408,43 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                     return []
                 
                 # Calculate how many documents to fetch based on collection size
-                k_value = min(int(docs_in_collection * search_percentage), n_results)
-                fetch_k = min(docs_in_collection, max(k_value * 2, 500))
+                # Use different retrieval strategies for Chinese vs non-Chinese queries
+                if is_chinese:
+                    # More aggressive retrieval for Chinese queries since they're harder to match
+                    search_percentage = max(search_percentage, 0.35)  # At least 35% of documents
+                    k_value = min(int(docs_in_collection * search_percentage), n_results)
+                    fetch_k = min(docs_in_collection, max(k_value * 3, 1000))  # Fetch more candidates
+                    print(f"Using CHINESE retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
+                else:
+                    # Standard retrieval for non-Chinese queries
+                    k_value = min(int(docs_in_collection * search_percentage), n_results)
+                    fetch_k = min(docs_in_collection, max(k_value * 2, 500))
+                    print(f"Using standard retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
                 
-                print(f"Retrieval strategy for {collection_name}: fetch_k={fetch_k}, k={k_value}")
-                
-                # Set up the retriever with MMR search
-                retriever = vectorstore.as_retriever(
-                    search_type="mmr",
-                    search_kwargs={
-                        "k": k_value,
-                        "fetch_k": fetch_k,
-                        "lambda_mult": 0.7
-                    }
-                )
+                # Set up the retriever with different parameters for Chinese vs non-Chinese
+                if is_chinese:
+                    # For Chinese text, use similarity search with a lower threshold
+                    # This helps find more matches even with slight language differences
+                    print(f"Using similarity search for Chinese query with fetch_k={fetch_k}")
+                    retriever = vectorstore.as_retriever(
+                        search_type="similarity",  # Use basic similarity instead of MMR for Chinese
+                        search_kwargs={
+                            "k": k_value,
+                            "fetch_k": fetch_k,
+                            # No lambda_mult for similarity search
+                            "score_threshold": 0.15,  # Lower threshold to catch more potential matches
+                        }
+                    )
+                else:
+                    # For non-Chinese text, use MMR which works better with English
+                    retriever = vectorstore.as_retriever(
+                        search_type="mmr",
+                        search_kwargs={
+                            "k": k_value,
+                            "fetch_k": fetch_k,
+                            "lambda_mult": 0.7
+                        }
+                    )
                 
                 # Get documents from this collection
                 results = retriever.get_relevant_documents(processed_query)
@@ -464,11 +487,57 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # Use all_collection_results as our combined results
         results = all_collection_results
             
-        # No fallback approaches - we only use the collections specified by our rules
-        if not results and collections_to_search:
+        # If we have no results but it's a Chinese query, use a more aggressive fallback
+        if not results and is_chinese and collections_to_search:
             update_progress(operation_id, current_step=6.5, 
-                           description="No results from search, but we don't use fallbacks anymore")
-            print(f"No results found in specified collections, and fallbacks are disabled")
+                           description="No results from initial search, trying aggressive Chinese fallback")
+            print(f"No results found, using aggressive Chinese fallback")
+            
+            try:
+                # Try direct keyword search on the collection with individual characters
+                fallback_collection = collections_to_search[0]
+                vectorstore = Chroma(
+                    persist_directory=CHROMA_PERSIST_DIR, 
+                    embedding_function=ollama_ef, 
+                    collection_name=fallback_collection
+                )
+                
+                # Extract all Chinese characters from the query
+                chinese_chars = [c for c in query if '\u4e00' <= c <= '\u9fff']
+                print(f"Extracted {len(chinese_chars)} Chinese characters for direct search: {chinese_chars}")
+                
+                # Try searching with each individual character
+                all_fallback_results = []
+                for char in chinese_chars:
+                    try:
+                        # Get 5 docs per character
+                        char_results = vectorstore.similarity_search(char, k=5, score_threshold=0.01)
+                        if char_results:
+                            print(f"Found {len(char_results)} results for character '{char}'")
+                            all_fallback_results.extend(char_results)
+                    except Exception as e:
+                        print(f"Error in character search for '{char}': {e}")
+                
+                # Deduplicate results
+                unique_docs = {}
+                for doc in all_fallback_results:
+                    # Use content as key for deduplication
+                    content_hash = doc.page_content[:100]  # First 100 chars as hash
+                    if content_hash not in unique_docs:
+                        unique_docs[content_hash] = doc
+                
+                # Use these as our results
+                if unique_docs:
+                    results = list(unique_docs.values())[:n_results]  # Limit to n_results
+                    print(f"Chinese fallback found {len(results)} documents")
+            except Exception as e:
+                print(f"Error in Chinese fallback: {e}")
+                
+        # For non-Chinese queries or if Chinese fallback didn't work
+        elif not results and collections_to_search:
+            update_progress(operation_id, current_step=6.5, 
+                           description="No results from search, but we don't use general fallbacks anymore")
+            print(f"No results found in specified collections, and general fallbacks are disabled")
             # Empty results with no fallback
                 
         # Update progress
