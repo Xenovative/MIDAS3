@@ -8,30 +8,57 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'user_pre
 def get_available_models():
     """Fetch available models from Ollama"""
     try:
-        client = ollama.Client(host='http://localhost:11434')
+        print("Attempting to connect to Ollama at http://localhost:11434")
+        client = ollama.Client(host='http://localhost:11434', timeout=5.0)
+        
+        # Get the raw models data
         models_data = client.list()
+        print(f"Ollama response: {models_data}")
         
         # Get embedding models to exclude them
         embedding_models = get_available_embedding_models()
+        print(f"Found {len(embedding_models)} embedding models to exclude")
         
+        # New Ollama API format has models in models_data['models']
         if 'models' in models_data and models_data['models']:
-            # Filter out embedding models and return all LLM models
+            print(f"Found {len(models_data['models'])} total models")
             filtered_models = []
+            
             for model in models_data['models']:
+                # Handle both new and old API formats
                 model_name = model.get('model', model.get('name', ''))
+                if not model_name:
+                    continue
+                    
+                print(f"Processing model: {model_name}")
                 
                 # Skip if model is in the embedding models list
                 if model_name in embedding_models:
+                    print(f"Skipping embedding model: {model_name}")
                     continue
                 
                 filtered_models.append(model_name)
             
+            print(f"Found {len(filtered_models)} non-embedding models")
             return filtered_models if filtered_models else default_models()
-    except Exception as e:
-        print(f"Error fetching models from Ollama: {e}")
-        pass  # Fall through to default models
+            
+        # Fallback to direct API call if models key not found
+        import requests
+        response = requests.get('http://localhost:11434/api/tags')
+        if response.status_code == 200:
+            data = response.json()
+            if 'models' in data:
+                print(f"Found {len(data['models'])} models via direct API call")
+                return [m['name'] for m in data['models'] if m.get('name') and m.get('name') not in embedding_models]
         
-    return default_models()
+        print("No models found in Ollama response")
+        return default_models()
+        
+    except Exception as e:
+        print(f"Error fetching models from Ollama: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return default_models()
 
 def get_available_embedding_models():
     """Fetch available embedding models from Ollama"""
@@ -84,7 +111,9 @@ def default_models():
         'llama2', 
         'llama3:8b', 
         'mistral:7b', 
-        'gemma:7b'
+        'gemma:7b',
+        'codellama:latest',
+        'mistral-small3.1:latest'
     ]
 
 def load_user_preferences():
