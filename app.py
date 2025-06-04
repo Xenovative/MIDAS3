@@ -2509,302 +2509,80 @@ def generate_image():
         }), 500
         
     # Wait for the generation to complete with more frequent checks
-    # Initial wait time before first check
-    initial_wait = 15  # seconds
-    check_interval = 5  # seconds between checks
-    max_checks = 60    # maximum number of checks (5 min total with 5 sec intervals)
+    initial_wait = 5  # Reduced initial wait since we're using API
+    check_interval = 2  # Check more frequently
+    max_checks = 60    # Maximum number of checks (2 min total with 2 sec intervals)
     
-    print(f"Waiting {initial_wait} seconds before first check for prompt_id {result.get('prompt_id')}")
-    app.logger.info(f"Waiting {initial_wait} seconds before first check for prompt_id {result.get('prompt_id')}")
-    time.sleep(initial_wait)
-    
-    # Start polling for results
     app.logger.info(f"Starting image generation polling for prompt_id {result.get('prompt_id')}")
     
-    # Initialize variables
-    attempts = 0
-    history_resp = None
-    
     # Poll until we get a result or hit max attempts
-    while attempts < max_checks:
-        attempts += 1
-        
+    for attempt in range(max_checks):
         try:
-            # Check for results
-            print(f"Checking history for prompt_id {result.get('prompt_id')} (check #{attempts}/{max_checks})")
-            app.logger.info(f"Checking history for prompt_id {result.get('prompt_id')} (check #{attempts}/{max_checks})")
+            # Check for results using the ComfyUI API
+            history_url = f'{comfy_api_url}/history/{result.get("prompt_id")}'
+            history_resp = requests.get(history_url, timeout=10)
             
-            history_resp = requests.get(f'{comfy_api_url}/history/{result.get("prompt_id")}', timeout=10)
-            print(f"History response: {history_resp.status_code}")
-            app.logger.info(f"History response: {history_resp.status_code}, content length: {len(history_resp.text) if history_resp.text else 0}")
-            
-            # If we got a valid response with outputs, break the loop
-            if history_resp.status_code == 200 and history_resp.json().get(result.get('prompt_id'), {}).get('outputs'):
-                app.logger.info(f"Found image outputs after {attempts} checks")
-                break
+            if history_resp.status_code == 200:
+                history_data = history_resp.json()
+                outputs = history_data.get(result.get('prompt_id'), {}).get('outputs', {})
                 
-            # If we're still waiting, sleep before next check
-            if attempts < max_checks:
-                print(f"Image not ready yet. Checking again in {check_interval} seconds (attempt {attempts}/{max_checks})")
-                app.logger.info(f"Image not ready yet. Checking again in {check_interval} seconds (attempt {attempts}/{max_checks})")
-                time.sleep(check_interval)
-                
-        except Exception as e:
-            app.logger.error(f"Error checking history: {str(e)}")
-            time.sleep(check_interval)  # Still wait before retrying
-    
-    if history_resp.status_code == 200:
-        history_data = history_resp.json()
-        # Check if the prompt has outputs (meaning it's complete)
-        if history_data.get(result.get('prompt_id'), {}).get('outputs'):
-            app.logger.info(f"Image generation complete for prompt_id {result.get('prompt_id')}")
-            # Get the outputs for the SaveImage node
-            outputs = history_data[result.get('prompt_id')]['outputs']
-            image_data = None
-            image_filename = None
-            
-            # Log the full history data to see what's in it
-            app.logger.info(f"ComfyUI history data: {json.dumps(history_data, indent=2)}")
-            
-            # Look through all outputs to find image data
-            for node_id, node_output in outputs.items():
-                # Check if this is an image output
-                if node_output.get('images'):
-                    # Get the first image
-                    image_filename = node_output['images'][0]['filename']
-                    image_data = node_output['images'][0]
-                    
-                    # Log all available image data
-                    app.logger.info(f"Found image in output: {json.dumps(image_data, indent=2)}")
-                    
-                    # Check if there's a subfolder or full path in the image data
-                    if 'subfolder' in image_data:
-                        app.logger.info(f"Image subfolder: {image_data['subfolder']}")
-                    if 'path' in image_data:
-                        app.logger.info(f"Image full path: {image_data['path']}")
-                    
-                    break
-
-            if image_filename:
-                # Get the base filename without extension for pattern matching
-                
-                # Extract base name without extension for pattern matching
-                base_name = os.path.splitext(image_filename)[0]
-                base_name_pattern = re.sub(r'_\d+_$', '', base_name)  # Remove trailing numbers
-                app.logger.info(f"Base image name for pattern matching: {base_name_pattern}")
-                
-                # Construct path to the image in ComfyUI's output directory
-                # Convert forward slashes to backslashes for Windows
-                normalized_output_dir = comfy_output_dir.replace('/', os.path.sep)
-                image_path = os.path.join(normalized_output_dir, image_filename)
-                print(f"Looking for image at: {image_path}")
-                app.logger.info(f"Looking for image at: {image_path}")
-                
-                # Define potential output directories to check
-                potential_dirs = [
-                    normalized_output_dir,
-                    os.path.join(os.getcwd(), normalized_output_dir),
-                    os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'Output'),
-                    os.path.join(os.getcwd(), 'MIDAS_standalone', 'ComfyUI', 'output'),
-                    os.path.join('/root/MIDAS3', 'MIDAS_standalone', 'ComfyUI', 'Output'),
-                    os.path.join('/root/MIDAS3', 'MIDAS_standalone', 'ComfyUI', 'output'),
-                    os.path.join('/root/MIDAS3', 'ComfyUI', 'Output'),
-                    os.path.join('/root/MIDAS3', 'ComfyUI', 'output'),
-                    os.path.join('/root/ComfyUI', 'Output'),
-                    os.path.join('/root/ComfyUI', 'output'),
-                    'ComfyUI/Output',
-                    'Output',
-                    '/tmp/ComfyUI/Output',
-                    '/tmp/ComfyUI/output',
-                    '/tmp/Output',
-                    '/tmp/output',
-                    '.',
-                ]
-                
-                # If we have subfolder info from the image data, add that path too
-                if image_data and 'subfolder' in image_data:
-                    subfolder = image_data['subfolder']
-                    app.logger.info(f"Adding subfolder path: {subfolder}")
-                    potential_dirs.append(os.path.join('ComfyUI', subfolder))
-                    potential_dirs.append(os.path.join('/root/MIDAS3/ComfyUI', subfolder))
-                    potential_dirs.append(os.path.join('/root/ComfyUI', subfolder))
-                    
-                # If we have full path info from the image data, add that too
-                if image_data and 'path' in image_data:
-                    full_path = os.path.dirname(image_data['path'])
-                    app.logger.info(f"Adding full path: {full_path}")
-                    potential_dirs.append(full_path)
-                
-                # Log directories we're checking
-                app.logger.info(f"Checking the following directories for images: {potential_dirs}")
-                
-                # Try to find the exact file or any file matching the pattern
-                found_image = False
-                for directory in potential_dirs:
-                    try:
-                        # First try exact filename
-                        exact_path = os.path.join(directory, image_filename)
-                        if os.path.exists(exact_path):
-                            image_path = exact_path
-                            app.logger.info(f"Found exact image match at: {image_path}")
-                            found_image = True
-                            break
-                            
-                        # If exact match not found, list all files in directory and look for pattern match
-                        if os.path.exists(directory):
-                            app.logger.info(f"Listing files in {directory}")
-                            files = os.listdir(directory)
-                            app.logger.info(f"Files in directory: {files}")
-                            
-                            # Look for files matching our pattern
-                            for file in files:
-                                if base_name_pattern in file and (file.endswith('.png') or file.endswith('.jpg') or file.endswith('.jpeg')):
-                                    image_path = os.path.join(directory, file)
-                                    app.logger.info(f"Found pattern match at: {image_path}")
-                                    found_image = True
-                                    break
-                            
-                            # Also try glob pattern matching
-                            pattern = os.path.join(directory, f"*{base_name_pattern}*.png")
-                            app.logger.info(f"Trying glob pattern: {pattern}")
-                            matching_files = glob.glob(pattern)
-                            if matching_files:
-                                image_path = matching_files[0]  # Take the first match
-                                app.logger.info(f"Found glob match at: {image_path}")
-                                found_image = True
-                                break
-                    except Exception as e:
-                        app.logger.error(f"Error checking directory {directory}: {str(e)}")
-                        continue
+                # Look for image data in the outputs
+                for node_id, node_output in outputs.items():
+                    if node_output.get('images'):
+                        # Get the first image
+                        image_data = node_output['images'][0]
+                        filename = image_data['filename']
                         
-                    if found_image:
-                        break
-                        
-                if found_image:
-                    app.logger.info(f"Successfully found image at: {image_path}")
-                else:
-                    app.logger.error(f"Could not find any matching image file. Base pattern: {base_name_pattern}")
-                
-                # Make sure the file exists
-                if os.path.exists(image_path):
-                    print(f"Found image at: {image_path}")  # Debug output
-                    # Read and encode the image
-                    with open(image_path, 'rb') as img_file:
-                        img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
-
-                        # Don't save to DB here - let the frontend handle it
-                        # This prevents double messages in the conversation
-                        # The frontend will handle adding the image to the chat UI
-                        
-                        # Mark this request as completed
-                        if request_key in recent_image_requests:
-                            recent_image_requests[request_key] = (current_time, False)
-
-                        return jsonify({
-                            'status': 'success', 
-                            'image_base64': img_b64, 
-                            'filename': image_filename,
-                            'workflow': workflow,
-                            'seed': seed  # Include the seed in the response
-                        })
-
-            # If we couldn't find the image using the exact name, try to find any recent image
-            try:
-                # Try to find most recent image in any of the potential directories
-                most_recent_image = None
-                most_recent_time = 0
-                
-                # Try to directly access the image using the ComfyUI API
-                if image_data and 'filename' in image_data:
-                    try:
-                        # Try to get the image directly from ComfyUI
-                        image_url = f"{comfy_api_url}/view?filename={image_data['filename']}"
+                        # Get the image directly from ComfyUI
+                        image_url = f"{comfy_api_url}/view?filename={filename}"
                         if 'subfolder' in image_data and image_data['subfolder']:
                             image_url += f"&subfolder={image_data['subfolder']}"
                         
-                        app.logger.info(f"Trying to get image directly from ComfyUI API: {image_url}")
-                        img_resp = requests.get(image_url, timeout=10)
-                        
+                        img_resp = requests.get(image_url, timeout=30)
                         if img_resp.status_code == 200 and img_resp.content:
-                            app.logger.info(f"Successfully retrieved image from ComfyUI API")
                             img_b64 = base64.b64encode(img_resp.content).decode('utf-8')
                             
-                            # Save message to conversation history if conversation_id is provided
+                            # Save to conversation history if needed
                             if conversation_id:
                                 try:
-                                    message_id = db.add_message(
+                                    db.add_message(
                                         conversation_id=conversation_id,
                                         role='assistant',
-                                        content=f'',
+                                        content='',
                                         thinking=None,
-                                        images=[img_b64],  
-                                        attachment_filename=image_data['filename']
+                                        images=[img_b64],
+                                        attachment_filename=filename
                                     )
                                 except Exception as db_error:
-                                    app.logger.error(f"Error saving image message to database: {str(db_error)}")
+                                    app.logger.error(f"Error saving image to database: {str(db_error)}")
+                            
+                            # Mark request as completed
+                            if request_key in recent_image_requests:
+                                recent_image_requests[request_key] = (time.time(), False)
                             
                             return jsonify({
-                                'status': 'success', 
-                                'image_base64': img_b64, 
-                                'filename': image_data['filename'],
+                                'status': 'success',
+                                'image_base64': img_b64,
+                                'filename': filename,
                                 'workflow': workflow,
                                 'seed': seed
                             })
-                    except Exception as e:
-                        app.logger.error(f"Error getting image from ComfyUI API: {str(e)}")
+            
+            # If we get here, image isn't ready yet
+            if attempt < max_checks - 1:
+                time.sleep(check_interval)
                 
-                # Fallback to searching for recent files
-                for directory in potential_dirs:
-                    if os.path.exists(directory):
-                        app.logger.info(f"Looking for recent images in {directory}")
-                        for file in os.listdir(directory):
-                            if file.endswith(('.png', '.jpg', '.jpeg')):
-                                file_path = os.path.join(directory, file)
-                                file_time = os.path.getmtime(file_path)
-                                if file_time > most_recent_time:
-                                    most_recent_time = file_time
-                                    most_recent_image = file_path
-                
-                if most_recent_image and (time.time() - most_recent_time) < 300:  # Image created in last 5 minutes
-                    app.logger.info(f"Found recent image at: {most_recent_image}")
-                    image_path = most_recent_image
-                    with open(image_path, 'rb') as img_file:
-                        img_b64 = base64.b64encode(img_file.read()).decode('utf-8')
-                        
-                        # Save message to conversation history if conversation_id is provided
-                        if conversation_id:
-                            try:
-                                message_id = db.add_message(
-                                    conversation_id=conversation_id,
-                                    role='assistant',
-                                    content=f'',
-                                    thinking=None,
-                                    images=[img_b64],  
-                                    attachment_filename=os.path.basename(image_path)
-                                )
-                            except Exception as db_error:
-                                app.logger.error(f"Error saving image message to database: {str(db_error)}")
-                                return jsonify({
-                                    'status': 'error',
-                                    'message': f'Failed to save image message: {str(db_error)}'
-                                }), 500
-                        
-                        return jsonify({
-                            'status': 'success', 
-                            'image_base64': img_b64, 
-                            'filename': os.path.basename(image_path),
-                            'workflow': workflow,
-                            'seed': seed
-                        })
-            except Exception as e:
-                app.logger.error(f"Error finding recent image: {str(e)}")
-                
-            app.logger.warning(f"Image generation completed but file not found for prompt_id {result.get('prompt_id')}")
-            # If we couldn't find the image or it wasn't saved yet
-            return jsonify({
-                'status': 'error',
-                'message': 'Image generation completed but image file not found'
-            }), 404
+        except requests.exceptions.RequestException as e:
+            app.logger.error(f"Error checking image status: {str(e)}")
+            if attempt < max_checks - 1:
+                time.sleep(check_interval)
+    
+    # If we get here, we've timed out
+    app.logger.error(f"Timed out waiting for image generation (prompt_id: {result.get('prompt_id')})")
+    return jsonify({
+        'status': 'error',
+        'message': 'Image generation timed out. Please try again.'
+    }), 504
 
     # If we've exhausted all attempts and still haven't found the image
     app.logger.error(f"Timed out waiting for image generation to complete for prompt_id {result.get('prompt_id')}")
