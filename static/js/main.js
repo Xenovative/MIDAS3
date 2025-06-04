@@ -948,15 +948,22 @@ function updateChatInfo(title, model) {
 function addEventListeners() {
     console.log('Adding event listeners to elements:', { sendButton, messageInput });
     
-    // Check if event listeners were already added
-    if (eventListenersAdded) {
-        console.log('Event listeners already added, skipping to prevent duplicates');
-        return;
+    // Remove any existing event listeners first
+    if (sendButton) {
+        const newSendButton = sendButton.cloneNode(true);
+        sendButton.parentNode.replaceChild(newSendButton, sendButton);
+        sendButton = newSendButton;
+    }
+    
+    if (messageInput) {
+        const newMessageInput = messageInput.cloneNode(true);
+        messageInput.parentNode.replaceChild(newMessageInput, messageInput);
+        messageInput = newMessageInput;
     }
     
     // Send button click event
     if (sendButton) {
-        sendButton.addEventListener('click', function(e) {
+        sendButton.addEventListener('click', function handleSendClick(e) {
             console.log('Send button clicked');
             sendMessage();
         });
@@ -966,7 +973,7 @@ function addEventListeners() {
     
     // Message input Enter key event
     if (messageInput) {
-        messageInput.addEventListener('keydown', (e) => {
+        messageInput.addEventListener('keydown', function handleKeyDown(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 console.log('Enter key pressed, sending message');
