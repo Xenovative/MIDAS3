@@ -2157,7 +2157,7 @@ def reset_user_quota_counters(user_id):
         }), 500
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'docs')
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'xml'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'xml', 'json'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 

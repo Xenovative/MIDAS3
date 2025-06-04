@@ -1,6 +1,7 @@
 import os
 import uuid
 from langchain_community.embeddings import OllamaEmbeddings
+import json
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, UnstructuredMarkdownLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
@@ -88,16 +89,71 @@ ollama_ef = CacheBackedEmbeddings.from_bytes_store(
 
 # --- Document Loading and Processing ---
 
+def load_json_file(file_path):
+    """Load a single JSON file and convert it to Document objects."""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        from langchain.schema import Document
+        
+        # If it's a list, create a document for each item
+        if isinstance(data, list):
+            return [
+                Document(
+                    page_content=json.dumps(item, ensure_ascii=False, indent=2),
+                    metadata={"source": file_path, "item_index": i, "type": "json"}
+                )
+                for i, item in enumerate(data)
+            ]
+        # If it's a dictionary, create a single document
+        elif isinstance(data, dict):
+            return [Document(
+                page_content=json.dumps(data, ensure_ascii=False, indent=2),
+                metadata={"source": file_path, "type": "json"}
+            )]
+        # For other JSON types (string, number, etc.)
+        else:
+            return [Document(
+                page_content=str(data),
+                metadata={"source": file_path, "type": "json"}
+            )]
+            
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON file {file_path}: {e}")
+        # If it's not valid JSON, return as plain text
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return [Document(
+                page_content=f.read(),
+                metadata={"source": file_path, "type": "text"}
+            )]
+    except Exception as e:
+        print(f"Error loading JSON file {file_path}: {e}")
+        return []
+
 def load_documents(source_directory):
     """Loads documents from various file types in the specified directory."""
     print(f"Loading documents from: {source_directory}")
     documents = []
     
+    # Load text files
     loader_txt = DirectoryLoader(source_directory, glob="**/*.txt", loader_cls=TextLoader, recursive=True, show_progress=True)
     documents.extend(loader_txt.load())
     
+    # Load PDF files
     loader_pdf = DirectoryLoader(source_directory, glob="**/*.pdf", loader_cls=PyPDFLoader, recursive=True, show_progress=True)
     documents.extend(loader_pdf.load())
+    
+    # Load JSON files
+    import glob
+    json_files = glob.glob(os.path.join(source_directory, "**/*.json"), recursive=True)
+    for json_file in json_files:
+        try:
+            docs = load_json_file(json_file)
+            documents.extend(docs)
+            print(f"Loaded {len(docs)} documents from {os.path.basename(json_file)}")
+        except Exception as e:
+            print(f"Error loading JSON file {json_file}: {e}")
 
     loader_md = DirectoryLoader(source_directory, glob="**/*.md", loader_cls=UnstructuredMarkdownLoader, recursive=True, show_progress=True)
     documents.extend(loader_md.load())
