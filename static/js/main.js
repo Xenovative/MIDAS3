@@ -2000,6 +2000,9 @@ async function sendMessage() {
         }
     }
     
+    // Track the current image generation request
+    let currentImageRequestId = null;
+    
     // IMAGE BOT HANDLING
     if (isImageModel(selectedModel, botDetails)) {
         // Add assistant message with loading spinner
@@ -2040,15 +2043,39 @@ async function sendMessage() {
             if (selectedModel.startsWith('workflow:')) {
                 body.model = selectedModel;
             }
-            const resp = await fetch('/api/generate_image', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(body)
-            });
-            const data = await resp.json();
-            if (data.status === 'success' && data.image_base64) {
+            // Add a request ID to track this specific generation request
+            const requestId = Date.now();
+            currentImageRequestId = requestId;
+            
+            // Set a timeout for the request (60 seconds)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
+            
+            try {
+                const resp = await fetch('/api/generate_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body),
+                    signal: controller.signal
+                });
+                
+                // Clear the timeout if the request completes in time
+                clearTimeout(timeoutId);
+                
+                // If another request was made, ignore this response
+                if (currentImageRequestId !== requestId) {
+                    return;
+                }
+                
+                if (!resp.ok) {
+                    throw new Error(`HTTP error! status: ${resp.status}`);
+                }
+                
+                const data = await resp.json();
+                
+                if (data.status === 'success' && data.image_base64) {
                 // Create a container for the image and buttons
                 const imageContainer = document.createElement('div');
                 imageContainer.className = 'generated-image-container';
@@ -2171,10 +2198,17 @@ async function sendMessage() {
                 responseElement.innerHTML = `<span class="error-message">Image generation failed: ${data.message || 'Unknown error'}</span>`;
             }
         } catch (error) {
-            responseElement.innerHTML = `<span class="error-message">Image generation failed: ${error.message}</span>`;
+            if (error.name === 'AbortError') {
+                responseElement.innerHTML = `<span class="error-message">Image generation timed out. The image may still be processing in the background.</span>`;
+            } else {
+                console.error('Image generation error:', error);
+                responseElement.innerHTML = `<span class="error-message">Image generation failed: ${error.message}</span>`;
+                }
+            }
         } finally {
             isGenerating = false;
             stopAiMagicDotsAnimation();
+            currentImageRequestId = null;
         }
         return;
     }
@@ -3745,22 +3779,48 @@ async function saveBot() {
             });
         } else {
             // Create new bot
-            response = await fetch('/api/bots', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(botData)
-            });
-        }
-        
-        const data = await response.json();
-        
-        if (data.status === 'success') {
-            showNotification(`Bot ${botId ? 'updated' : 'created'} successfully`);
-            showBotList();
-        } else {
-            showNotification(`Error ${botId ? 'updating' : 'creating'} bot: ${data.message}`, 'error');
+            // Add a request ID to track this specific generation request
+            const requestId = Date.now();
+            currentImageRequestId = requestId;
+
+            // Set a timeout for the request (60 seconds)
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+            try {
+                const resp = await fetch('/api/generate_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(body),
+                    signal: controller.signal
+                });
+
+                // Clear the timeout if the request completes in time
+                clearTimeout(timeoutId);
+
+                // If another request was made, ignore this response
+                if (currentImageRequestId !== requestId) {
+                    return;
+                }
+
+                if (!resp.ok) {
+                    throw new Error(`HTTP error! status: ${resp.status}`);
+                }
+
+                const data = await resp.json();
+
+                if (data.status === 'success') {
+                    showNotification(`Bot ${botId ? 'updated' : 'created'} successfully`);
+                    showBotList();
+                } else {
+                    showNotification(`Error ${botId ? 'updating' : 'creating'} bot: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                console.error(`Error ${botId ? 'updating' : 'creating'} bot:`, error);
+                showNotification(`Error ${botId ? 'updating' : 'creating'} bot`, 'error');
+            }
         }
     } catch (error) {
         console.error(`Error ${botId ? 'updating' : 'creating'} bot:`, error);
