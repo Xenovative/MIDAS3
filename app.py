@@ -2487,11 +2487,26 @@ def generate_image():
     # Submit to ComfyUI
     comfyui_url = f"{comfy_api_url}/prompt"
     print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
-    resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=900)
-    print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
-    resp.raise_for_status()
-    result = resp.json()
-    print(f"ComfyUI prompt_id: {result.get('prompt_id')}")
+    
+    try:
+        # Set a reasonable timeout for the initial request (30s connect, 60s read)
+        resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=(30, 150))
+        print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
+        resp.raise_for_status()
+        result = resp.json()
+        print(f"ComfyUI prompt_id: {result.get('prompt_id')}")
+    except requests.exceptions.Timeout:
+        app.logger.error("ComfyUI API request timed out")
+        return jsonify({
+            'status': 'error',
+            'message': 'Image generation service timed out. Please try again.'
+        }), 504
+    except requests.exceptions.RequestException as e:
+        app.logger.error(f"Error calling ComfyUI API: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to communicate with the image generation service: {str(e)}'
+        }), 500
         
     # Wait for the generation to complete with more frequent checks
     # Initial wait time before first check
