@@ -2510,8 +2510,8 @@ def generate_image():
         
     # Wait for the generation to complete with more frequent checks
     initial_wait = 5  # Reduced initial wait since we're using API
-    check_interval = 2  # Check more frequently
-    max_checks = 60    # Maximum number of checks (2 min total with 2 sec intervals)
+    check_interval = 2  # Check every 2 seconds
+    max_checks = 120   # Maximum number of checks (4 min total with 2 sec intervals)
     
     app.logger.info(f"Starting image generation polling for prompt_id {result.get('prompt_id')}")
     
