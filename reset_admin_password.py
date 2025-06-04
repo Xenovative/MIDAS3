@@ -5,8 +5,8 @@ from passlib.hash import bcrypt
 # Path to the database
 DB_PATH = os.path.join('data', 'conversations.db')
 
-def reset_admin_password(username, new_password):
-    """Reset the password for a user with admin role"""
+def reset_admin_password(username, new_password, email='office@xenovative-ltd.com'):
+    """Reset the password and email for a user with admin role"""
     try:
         # Hash the new password
         password_hash = bcrypt.hash(new_password)
@@ -23,11 +23,14 @@ def reset_admin_password(username, new_password):
             print(f"No admin user found with username: {username}")
             return False
         
-        # Update the password
-        cursor.execute('UPDATE users SET password_hash = ? WHERE id = ?', (password_hash, user[0]))
+        # Update the password and email
+        cursor.execute('UPDATE users SET password_hash = ?, email = ? WHERE id = ?', 
+                      (password_hash, email, user[0]))
         conn.commit()
         
-        print(f"Password reset successfully for admin user: {username}")
+        print(f"Admin user {username} updated successfully")
+        print(f"- Password reset")
+        print(f"- Email set to: {email}")
         return True
     except Exception as e:
         print(f"Error resetting password: {e}")
