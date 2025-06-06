@@ -1,7 +1,6 @@
 import os
 import uuid
 from langchain_community.embeddings import OllamaEmbeddings
-import json
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, UnstructuredMarkdownLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
@@ -89,71 +88,53 @@ ollama_ef = CacheBackedEmbeddings.from_bytes_store(
 
 # --- Document Loading and Processing ---
 
-def load_json_file(file_path):
-    """Load a single JSON file and convert it to Document objects."""
+def add_documents(documents, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None):
+    """Add documents to the vector store.
+    
+    Args:
+        documents: List of Document objects to add
+        collection_name: Name of the collection to add to
+        conversation_id: If provided, will use a conversation-specific collection
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        from langchain.schema import Document
-        
-        # If it's a list, create a document for each item
-        if isinstance(data, list):
-            return [
-                Document(
-                    page_content=json.dumps(item, ensure_ascii=False, indent=2),
-                    metadata={"source": file_path, "item_index": i, "type": "json"}
-                )
-                for i, item in enumerate(data)
-            ]
-        # If it's a dictionary, create a single document
-        elif isinstance(data, dict):
-            return [Document(
-                page_content=json.dumps(data, ensure_ascii=False, indent=2),
-                metadata={"source": file_path, "type": "json"}
-            )]
-        # For other JSON types (string, number, etc.)
-        else:
-            return [Document(
-                page_content=str(data),
-                metadata={"source": file_path, "type": "json"}
-            )]
+        # Use conversation-specific collection if ID provided
+        if conversation_id:
+            collection_name = get_conversation_collection_name(conversation_id)
             
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON file {file_path}: {e}")
-        # If it's not valid JSON, return as plain text
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return [Document(
-                page_content=f.read(),
-                metadata={"source": file_path, "type": "text"}
-            )]
+        print(f"Adding {len(documents)} documents to collection: {collection_name}")
+        
+        # Create or get the Chroma collection
+        chroma_db = Chroma(
+            persist_directory=CHROMA_PERSIST_DIR,
+            collection_name=collection_name,
+            embedding_function=ollama_ef
+        )
+        
+        # Add documents to the collection
+        chroma_db.add_documents(documents)
+        
+        # Persist the changes
+        chroma_db.persist()
+        print(f"Successfully added {len(documents)} documents to {collection_name}")
+        return True
+        
     except Exception as e:
-        print(f"Error loading JSON file {file_path}: {e}")
-        return []
+        print(f"Error adding documents to vector store: {e}")
+        return False
 
 def load_documents(source_directory):
     """Loads documents from various file types in the specified directory."""
     print(f"Loading documents from: {source_directory}")
     documents = []
     
-    # Load text files
     loader_txt = DirectoryLoader(source_directory, glob="**/*.txt", loader_cls=TextLoader, recursive=True, show_progress=True)
     documents.extend(loader_txt.load())
     
-    # Load PDF files
     loader_pdf = DirectoryLoader(source_directory, glob="**/*.pdf", loader_cls=PyPDFLoader, recursive=True, show_progress=True)
     documents.extend(loader_pdf.load())
-    
-    # Load JSON files
-    import glob
-    json_files = glob.glob(os.path.join(source_directory, "**/*.json"), recursive=True)
-    for json_file in json_files:
-        try:
-            docs = load_json_file(json_file)
-            documents.extend(docs)
-            print(f"Loaded {len(docs)} documents from {os.path.basename(json_file)}")
-        except Exception as e:
-            print(f"Error loading JSON file {json_file}: {e}")
 
     loader_md = DirectoryLoader(source_directory, glob="**/*.md", loader_cls=UnstructuredMarkdownLoader, recursive=True, show_progress=True)
     documents.extend(loader_md.load())
@@ -420,6 +401,10 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         str: The retrieved context as a string
     """
     try:
+        # Initialize Chroma client
+        import chromadb
+        client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
+        
         # Generate a unique operation ID if not provided
         if operation_id is None:
             operation_id = f"rag_{uuid.uuid4().hex[:8]}"
@@ -521,13 +506,9 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         
         # FOR CHINESE QUERIES: Immediately fetch samples from the collection if it's a Chinese query
         # This ensures we get at least something for Chinese queries
-        if is_chinese and 'bot_' in collections_to_search[0]:
+        if is_chinese and collections_to_search and 'bot_' in collections_to_search[0]:
             print(f"*** CHINESE QUERY DETECTED: IMMEDIATELY FETCHING SAMPLES FROM {collections_to_search[0]} ***")
             try:
-                # Connect directly to the collection
-                import chromadb
-                client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIR)
-                
                 # Get the underlying collection directly
                 if client.list_collections():
                     for coll in client.list_collections():
@@ -593,10 +574,17 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
                             # For small collections, just get everything
                             all_docs = client.get_collection(collection_name).peek(limit=docs_in_collection)
                             if all_docs and 'documents' in all_docs and len(all_docs['documents']) > 0:
-                                # Use all documents without embedding search
-                                full_collection_text = "\n\n".join(all_docs['documents'])
-                                print(f"Using full collection text: {len(full_collection_text)} chars")
-                                return full_collection_text
+                                # Convert to Document objects to match expected return type
+                                from langchain.schema import Document
+                                results = []
+                                for i, doc_text in enumerate(all_docs['documents']):
+                                    metadata = all_docs.get('metadatas', [{}] * len(all_docs['documents']))[i] or {}
+                                    if 'source_collection' not in metadata:
+                                        metadata['source_collection'] = collection_name
+                                    results.append(Document(page_content=doc_text, metadata=metadata))
+                                
+                                print(f"Using full collection: {len(results)} documents")
+                                return results
                         except Exception as full_e:
                             print(f"Failed to get full collection: {full_e}")
                             # Continue with normal retrieval
@@ -841,58 +829,60 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         # Use all_collection_results as our combined results
         results = all_collection_results
             
-        # If we have no results but it's a Chinese query, use a more aggressive fallback
-        if not results and is_chinese and collections_to_search:
-            update_progress(operation_id, current_step=6.5, 
-                           description="No results from initial search, trying aggressive Chinese fallback")
-            print(f"No results found, using aggressive Chinese fallback")
-            
-            try:
+        # Skip vectorstore operations if we already have results from direct collection access
+        if not results and collections_to_search:
+            # If we have no results but it's a Chinese query, use a more aggressive fallback
+            if is_chinese:
+                update_progress(operation_id, current_step=6.5, 
+                               description="No results from initial search, trying aggressive Chinese fallback")
+                print(f"No results found, using aggressive Chinese fallback")
+                
                 # Try direct keyword search on the collection with individual characters
                 fallback_collection = collections_to_search[0]
-                vectorstore = Chroma(
-                    persist_directory=CHROMA_PERSIST_DIR, 
-                    embedding_function=ollama_ef, 
-                    collection_name=fallback_collection
-                )
-                
-                # Extract all Chinese characters from the query
-                chinese_chars = [c for c in query if '\u4e00' <= c <= '\u9fff']
-                print(f"Extracted {len(chinese_chars)} Chinese characters for direct search: {chinese_chars}")
-                
-                # Try searching with each individual character
-                all_fallback_results = []
-                for char in chinese_chars:
-                    try:
-                        # Get 5 docs per character
-                        char_results = vectorstore.similarity_search(char, k=5, score_threshold=0.01)
-                        if char_results:
-                            print(f"Found {len(char_results)} results for character '{char}'")
-                            all_fallback_results.extend(char_results)
-                    except Exception as e:
-                        print(f"Error in character search for '{char}': {e}")
-                
-                # Deduplicate results
-                unique_docs = {}
-                for doc in all_fallback_results:
-                    # Use content as key for deduplication
-                    content_hash = doc.page_content[:100]  # First 100 chars as hash
-                    if content_hash not in unique_docs:
-                        unique_docs[content_hash] = doc
-                
-                # Use these as our results
-                if unique_docs:
-                    results = list(unique_docs.values())[:n_results]  # Limit to n_results
-                    print(f"Chinese fallback found {len(results)} documents")
-            except Exception as e:
-                print(f"Error in Chinese fallback: {e}")
-                
-        # For non-Chinese queries or if Chinese fallback didn't work
-        elif not results and collections_to_search:
-            update_progress(operation_id, current_step=6.5, 
-                           description="No results from search, but we don't use general fallbacks anymore")
-            print(f"No results found in specified collections, and general fallbacks are disabled")
-            # Empty results with no fallback
+                try:
+                    vectorstore = Chroma(
+                        persist_directory=CHROMA_PERSIST_DIR, 
+                        embedding_function=ollama_ef, 
+                        collection_name=fallback_collection
+                    )
+                    
+                    # Extract all Chinese characters from the query
+                    chinese_chars = [c for c in query if '\u4e00' <= c <= '\u9fff']
+                    print(f"Extracted {len(chinese_chars)} Chinese characters for direct search: {chinese_chars}")
+                    
+                    # Try searching with each individual character
+                    all_fallback_results = []
+                    for char in chinese_chars:
+                        try:
+                            # Get 5 docs per character
+                            char_results = vectorstore.similarity_search(char, k=5, score_threshold=0.01)
+                            if char_results:
+                                print(f"Found {len(char_results)} results for character '{char}'")
+                                all_fallback_results.extend(char_results)
+                        except Exception as e:
+                            print(f"Error in character search for '{char}': {e}")
+                    
+                    # Deduplicate results
+                    unique_docs = {}
+                    for doc in all_fallback_results:
+                        # Use content as key for deduplication
+                        content_hash = doc.page_content[:100]  # First 100 chars as hash
+                        if content_hash not in unique_docs:
+                            unique_docs[content_hash] = doc
+                    
+                    # Use these as our results
+                    if unique_docs:
+                        results = list(unique_docs.values())[:n_results]  # Limit to n_results
+                        print(f"Chinese fallback found {len(results)} documents")
+                except Exception as e:
+                    print(f"Error in Chinese fallback: {e}")
+            
+            # For non-Chinese queries or if Chinese fallback didn't work
+            elif not results and collections_to_search:
+                update_progress(operation_id, current_step=6.5, 
+                               description="No results from search, but we don't use general fallbacks anymore")
+                print(f"No results found in specified collections, and general fallbacks are disabled")
+                # Empty results with no fallback
                 
         # Update progress
         update_progress(operation_id, current_step=7, 
@@ -913,9 +903,8 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         print(f"Processed query: '{processed_query[:50]}...'")
         
         update_progress(operation_id, current_step=8, 
-                       description=f"Executing query: '{query[:30]}...'" + (" (Chinese text detected)" if is_chinese else ""),
+                       description=f"Processing query: '{query[:30]}...'" + (" (Chinese text detected)" if is_chinese else ""),
                        details={"is_chinese": is_chinese, "query_sample": query[:50], "processed_query": processed_query[:50]})
-        print(f"Collection: {collection_name}, Documents: {vectorstore._collection.count()}")
         
         # Extract key terms for Chinese queries
         key_terms = []

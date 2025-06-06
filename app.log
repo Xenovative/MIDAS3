@@ -1,50 +1,92 @@
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
 Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+User preferred models: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Available models from Ollama: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Filtered models based on user preferences: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Serialized models: [{'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_17\aiss-technical-specs.pdf'
+Error processing file aiss-technical-specs.pdf: module 'rag' has no attribute 'add_documents'
+Error uploading or indexing file aiss-technical-specs.pdf: name 'saved_files' is not defined
 Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+User preferred models: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Available models from Ollama: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Filtered models based on user preferences: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Serialized models: [{'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_17\aiss-technical-specs.pdf'
+Successfully processed and indexed 1 documents from aiss-technical-specs.pdf
+Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
+[RAG] Request data: bot_id=None, conversation_id=17
+[RAG] Documents found for conversation 17
+[RAG] Using ONLY conversation documents for RAG
+[RAG] Querying with: 'What can you tell me about this document?...'
+[RAG] Using ONLY conversation documents
+[RAG] Started retrieval operation: rag_17_1749203112
+[RAG] No relevant context found
 Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+User preferred models: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Available models from Ollama: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Filtered models based on user preferences: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Serialized models: [{'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_18\aiss-technical-specs.pdf'
+Successfully processed and indexed 1 documents from aiss-technical-specs.pdf
+Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
+[RAG] Request data: bot_id=None, conversation_id=18
+[RAG] Documents found for conversation 18
+[RAG] Using ONLY conversation documents for RAG
+[RAG] Querying with: 'What can you tell me about this document?...'
+[RAG] Using ONLY conversation documents
+[RAG] Started retrieval operation: rag_18_1749203257
+[RAG] No relevant context found
+Generating title for conversation 18 using model llama3.1:8b
+Calling LLM with 5 messages
+Calling LLM with model llama3.1:8b for title generation
+Calling LLM model llama3.1:8b with 5 messages (timeout: 5s)
+Calling Ollama with model: llama3.1:8b at host: http://localhost:11434
+Raw LLM response: 'Clarifying Information About the Document'
+Final generated title: Clarifying Information About The Document
+File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_19\aiss-technical-specs.pdf'
+Successfully processed and indexed 1 documents from aiss-technical-specs.pdf
+Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
+[RAG] Request data: bot_id=None, conversation_id=19
+[RAG] Documents found for conversation 19
+[RAG] Using ONLY conversation documents for RAG
+[RAG] Querying with: 'What can you tell me from this document?...'
+[RAG] Using ONLY conversation documents
+[RAG] Started retrieval operation: rag_19_1749203397
+[RAG] No relevant context found
+Generating title for conversation 19 using model llama3.1:8b
+Calling LLM with 5 messages
+Calling LLM with model llama3.1:8b for title generation
+Calling LLM model llama3.1:8b with 5 messages (timeout: 5s)
+Calling Ollama with model: llama3.1:8b at host: http://localhost:11434
+Raw LLM response: 'No Document Provided'
+Final generated title: No Document Provided
 Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Serialized models: [{'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-Attempting to get available models...
-Visible models: ['mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
-Attempting to get available models...
-Save result: True
+User preferred models: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Available models from Ollama: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Filtered models based on user preferences: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Serialized models: [{'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_20\aiss-technical-specs.pdf'
+Successfully processed and indexed 1 documents from aiss-technical-specs.pdf
+Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
+[RAG] Request data: bot_id=None, conversation_id=20
+[RAG] Documents found for conversation 20
+[RAG] Using ONLY conversation documents for RAG
+[RAG] Querying with: 'What can you tell me from this document?...'
+[RAG] Using ONLY conversation documents
+[RAG] Started retrieval operation: rag_20_1749203591
+[RAG] Retrieved 886 characters in 0.06s
+[RAG] Context sample: '
+
+Retrieved 1 relevant context chunks (50.0% of knowledge base) for query: 'What can you tell me from this document?'
+Sources consulted: 1 documents
+
+--- Context Chunk 1 (Relevance: 1.51) ---
+Source: ...'
+[RAG] Enhanced system prompt with 886 characters of knowledge
+Generating title for conversation 20 using model llama3.1:8b
+Calling LLM with 5 messages
+Calling LLM with model llama3.1:8b for title generation
+Calling LLM model llama3.1:8b with 5 messages (timeout: 5s)
+Calling Ollama with model: llama3.1:8b at host: http://localhost:11434
+Raw LLM response: 'Extracting Information from AISS Document'
+Final generated title: Extracting Information From Aiss Document
