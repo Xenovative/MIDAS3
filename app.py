@@ -2197,27 +2197,6 @@ def upload_document():
             file.save(file_path)
             app.logger.info(f"File '{filename}' saved successfully to '{file_path}'")
             
-            # Process and index the file
-            try:
-                if filename.endswith('.pdf'):
-                    loader = PyPDFLoader(file_path)
-                elif filename.endswith('.xml'):
-                    loader = UnstructuredXMLLoader(file_path)
-                elif filename.endswith('.md'):
-                    loader = UnstructuredMarkdownLoader(file_path)
-                else:  # .txt
-                    loader = TextLoader(file_path)
-                    
-                documents = loader.load()
-                # Add document to vector store
-                rag.add_documents(documents)
-                app.logger.info(f'Processed {len(documents)} documents from {filename}')
-            except Exception as e:
-                app.logger.error(f'Error processing file {filename}: {str(e)}')
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                saved_files.remove(filename)
-            
             # Call RAG to index the new file with conversation-specific collection
             success = rag.add_single_document_to_store(file_path, conversation_id=conversation_id)
             
