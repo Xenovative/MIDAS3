@@ -148,6 +148,11 @@ def save_user_preferences(preferences):
 AVAILABLE_MODELS = get_available_models()
 AVAILABLE_EMBEDDING_MODELS = get_available_embedding_models()
 
+# ComfyUI Configuration
+COMFYUI_HOST = os.environ.get('COMFYUI_HOST', 'localhost')
+COMFYUI_PORT = os.environ.get('COMFYUI_PORT', '8188')
+COMFYUI_BASE_URL = f"http://{COMFYUI_HOST}:{COMFYUI_PORT}"
+
 # Load user preferences
 USER_PREFERENCES = load_user_preferences()
 

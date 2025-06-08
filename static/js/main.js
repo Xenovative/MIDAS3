@@ -2054,9 +2054,9 @@ async function sendMessage() {
             const requestId = Date.now();
             currentImageRequestId = requestId;
             
-            // Set a timeout for the request (60 seconds)
+            // Set a timeout for the request (5 minutes)
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 60000);
+            const timeoutId = setTimeout(() => controller.abort(), 300000);
             
             try {
                 const resp = await fetch('/api/generate_image', {
@@ -3786,47 +3786,22 @@ async function saveBot() {
             });
         } else {
             // Create new bot
-            // Add a request ID to track this specific generation request
-            const requestId = Date.now();
-            currentImageRequestId = requestId;
-
-            // Set a timeout for the request (60 seconds)
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 60000);
-
-            try {
-                const resp = await fetch('/api/generate_image', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(body),
-                    signal: controller.signal
-                });
-
-                // Clear the timeout if the request completes in time
-                clearTimeout(timeoutId);
-
-                // If another request was made, ignore this response
-                if (currentImageRequestId !== requestId) {
-                    return;
-                }
-
-                if (!resp.ok) {
-                    throw new Error(`HTTP error! status: ${resp.status}`);
-                }
-
-                const data = await resp.json();
-
-                if (data.status === 'success') {
-                    showNotification(`Bot ${botId ? 'updated' : 'created'} successfully`);
-                    showBotList();
-                } else {
-                    showNotification(`Error ${botId ? 'updating' : 'creating'} bot: ${data.message}`, 'error');
-                }
-            } catch (error) {
-                console.error(`Error ${botId ? 'updating' : 'creating'} bot:`, error);
-                showNotification(`Error ${botId ? 'updating' : 'creating'} bot`, 'error');
+            response = await fetch('/api/bots', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(botData)
+            });
+            
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                showNotification('Bot created successfully');
+                loadBots();
+                showBotList();
+            } else {
+                showNotification(`Error creating bot: ${data.message}`, 'error');
             }
         }
     } catch (error) {

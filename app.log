@@ -1,92 +1,177 @@
+[3feea9e5] Starting image generation request
+[3feea9e5] ComfyUI URL: http://localhost:8188/prompt
+[3feea9e5] Workflow: Flux Quick (Local)
+[3feea9e5] Prompt length: 202 chars
+[3feea9e5] ComfyUI response - Status: 200
+[3feea9e5] Successfully queued generation with prompt_id: 7a7532c2-d5f4-421f-84d7-928ee96b2e1f
 Attempting to get available models...
 User preferred models: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Available models from Ollama: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Filtered models based on user preferences: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Serialized models: [{'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_17\aiss-technical-specs.pdf'
-Error processing file aiss-technical-specs.pdf: module 'rag' has no attribute 'add_documents'
-Error uploading or indexing file aiss-technical-specs.pdf: name 'saved_files' is not defined
 Attempting to get available models...
 User preferred models: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Available models from Ollama: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Filtered models based on user preferences: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Serialized models: [{'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_17\aiss-technical-specs.pdf'
-Successfully processed and indexed 1 documents from aiss-technical-specs.pdf
-Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
-[RAG] Request data: bot_id=None, conversation_id=17
-[RAG] Documents found for conversation 17
-[RAG] Using ONLY conversation documents for RAG
-[RAG] Querying with: 'What can you tell me about this document?...'
-[RAG] Using ONLY conversation documents
-[RAG] Started retrieval operation: rag_17_1749203112
-[RAG] No relevant context found
 Attempting to get available models...
 User preferred models: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Available models from Ollama: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Filtered models based on user preferences: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Serialized models: [{'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_18\aiss-technical-specs.pdf'
-Successfully processed and indexed 1 documents from aiss-technical-specs.pdf
-Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
-[RAG] Request data: bot_id=None, conversation_id=18
-[RAG] Documents found for conversation 18
-[RAG] Using ONLY conversation documents for RAG
-[RAG] Querying with: 'What can you tell me about this document?...'
-[RAG] Using ONLY conversation documents
-[RAG] Started retrieval operation: rag_18_1749203257
-[RAG] No relevant context found
-Generating title for conversation 18 using model llama3.1:8b
-Calling LLM with 5 messages
-Calling LLM with model llama3.1:8b for title generation
-Calling LLM model llama3.1:8b with 5 messages (timeout: 5s)
-Calling Ollama with model: llama3.1:8b at host: http://localhost:11434
-Raw LLM response: 'Clarifying Information About the Document'
-Final generated title: Clarifying Information About The Document
-File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_19\aiss-technical-specs.pdf'
-Successfully processed and indexed 1 documents from aiss-technical-specs.pdf
-Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
-[RAG] Request data: bot_id=None, conversation_id=19
-[RAG] Documents found for conversation 19
-[RAG] Using ONLY conversation documents for RAG
-[RAG] Querying with: 'What can you tell me from this document?...'
-[RAG] Using ONLY conversation documents
-[RAG] Started retrieval operation: rag_19_1749203397
-[RAG] No relevant context found
-Generating title for conversation 19 using model llama3.1:8b
-Calling LLM with 5 messages
-Calling LLM with model llama3.1:8b for title generation
-Calling LLM model llama3.1:8b with 5 messages (timeout: 5s)
-Calling Ollama with model: llama3.1:8b at host: http://localhost:11434
-Raw LLM response: 'No Document Provided'
-Final generated title: No Document Provided
+Using ComfyUI URL: http://192.168.1.100:8188/prompt
+ComfyUI connection error: HTTPConnectionPool(host='192.168.1.100', port=8188): Max retries exceeded with url: /system_stats (Caused by ConnectTimeoutError(<urllib3.connection.HTTPConnection object at 0x000002AB2011EDF0>, 'Connection to 192.168.1.100 timed out. (connect timeout=5)'))
+Using ComfyUI URL: http://127.0.0.1:8188/prompt
 Attempting to get available models...
 User preferred models: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Available models from Ollama: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Filtered models based on user preferences: ['mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
 Serialized models: [{'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
-File 'aiss-technical-specs.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_20\aiss-technical-specs.pdf'
-Successfully processed and indexed 1 documents from aiss-technical-specs.pdf
-Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
-[RAG] Request data: bot_id=None, conversation_id=20
-[RAG] Documents found for conversation 20
-[RAG] Using ONLY conversation documents for RAG
-[RAG] Querying with: 'What can you tell me from this document?...'
-[RAG] Using ONLY conversation documents
-[RAG] Started retrieval operation: rag_20_1749203591
-[RAG] Retrieved 886 characters in 0.06s
-[RAG] Context sample: '
+Using ComfyUI URL: http://127.0.0.1:8188/prompt
+=== Starting image generation request ===
+Parsing request data...
+Request data - Prompt: A sexy taiwanese girl with nautral breasts complet..., Model: workflow:Flux Quick, Conversation ID: 25
+Using ComfyUI URL: http://127.0.0.1:8188/prompt
+Checking for duplicate requests...
+Marking request as processing...
+Initializing seed...
+Initialized new random seed: 788049140
+Extracting parameters from prompt...
+Initial parameters - Steps: 20, Seed: None, Aspect Ratio: None
+Processing aspect ratio...
+Found aspect ratio: 9:16
+Processing steps...
+Processing seed...
+Using new random seed: 273919661
+Determining workflow to use...
+Using specified workflow: Flux Quick from workflows\Flux Quick.json
+Loading workflow from file: workflows\Flux Quick.json
+Absolute workflow path: C:\AIapps\MIDAS3\workflows\Flux Quick.json
+Successfully read 8912 bytes from workflow file
+Successfully parsed workflow JSON with 8 top-level keys
+Processing workflow nodes...
+Skipping non-dict node last_node_id
+Skipping non-dict node last_link_id
+Skipping non-dict node nodes
+Skipping non-dict node links
+Skipping non-dict node groups
+Skipping non-dict node version
+Workflow processing complete - Prompt nodes: 0, Resolution nodes: 0, Steps nodes: 0, Seed nodes: 0
+Submitting to ComfyUI at http://127.0.0.1:8188/prompt
+Sending request to ComfyUI with payload: {
+  "last_node_id": 26,
+  "last_link_id": 24,
+  "nodes": [
+    {
+      "id": 5,
+      "type": "EmptyLatentImage",
+      "pos": [
+        100,
+        130
+      ],
+      "size": [
+        315,
+        106
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            21
+          ]
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "EmptyLatentImage"
+      },
+      "widgets_values": [
+        1024,
+        1024,
+        1
+      ]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecode",
+      "pos": [
+        1812,
+        130
+      ],
+      "size": [
+        210,
+        46
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 14
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 15
+   ...
+ComfyUI response received in 0.01s - Status: 500
+Failed to parse ComfyUI response as JSON. Status: 500, Content: 500 Internal Server Error
 
-Retrieved 1 relevant context chunks (50.0% of knowledge base) for query: 'What can you tell me from this document?'
-Sources consulted: 1 documents
+Server got itself in trouble
+=== Starting image generation request ===
+Parsing request data...
+Request data - Prompt: A sexy taiwanese girl with nautral breasts complet..., Model: workflow:Flux Quick, Conversation ID: 25
+Using ComfyUI URL: http://127.0.0.1:8188/prompt
+Checking for duplicate requests...
+Marking request as processing...
+Initializing seed...
+Extracting parameters from prompt...
+Initial parameters - Steps: 20, Seed: None, Aspect Ratio: None
+Processing aspect ratio...
+Found aspect ratio: 9:16
+Processing steps...
+Processing seed...
+Using new random seed: 287893628
+Determining workflow to use...
+Using specified workflow: Flux Quick from workflows\Flux Quick.json
+Loading workflow from file: workflows\Flux Quick.json
+Absolute workflow path: C:\AIapps\MIDAS3\workflows\Flux Quick.json
+Successfully read 8912 bytes from workflow file
+Successfully parsed workflow JSON with 8 top-level keys
+Processing workflow nodes...
+Skipping non-dict node last_node_id
+Skipping non-dict node last_link_id
+Skipping non-dict node nodes
+Skipping non-dict node links
+Skipping non-dict node groups
+Skipping non-dict node version
+Workflow processing complete - Prompt nodes: 0, Resolution nodes: 0, Steps nodes: 0, Seed nodes: 0
+Submitting to ComfyUI at http://127.0.0.1:8188/prompt
+ComfyUI response received in 0.02s - Status: 500
+Failed to parse ComfyUI response as JSON. Status: 500, Content: 500 Internal Server Error
 
---- Context Chunk 1 (Relevance: 1.51) ---
-Source: ...'
-[RAG] Enhanced system prompt with 886 characters of knowledge
-Generating title for conversation 20 using model llama3.1:8b
-Calling LLM with 5 messages
-Calling LLM with model llama3.1:8b for title generation
-Calling LLM model llama3.1:8b with 5 messages (timeout: 5s)
-Calling Ollama with model: llama3.1:8b at host: http://localhost:11434
-Raw LLM response: 'Extracting Information from AISS Document'
-Final generated title: Extracting Information From Aiss Document
+Server got itself in trouble
+=== Starting image generation request ===
+Parsing request data...
+Request data - Prompt: A sexy taiwanese girl with nautral breasts complet..., Model: workflow:Flux Quick, Conversation ID: 25
+Using ComfyUI URL: http://127.0.0.1:8188/prompt
+Checking for duplicate requests...
+Marking request as processing...
+Initializing seed...
+Initialized new random seed: 1899221174
+Extracting parameters from prompt...
+Initial parameters - Steps: 20, Seed: None, Aspect Ratio: None
+Processing aspect ratio...
+Found aspect ratio: 9:16
+Processing steps...
+Processing seed...
+Using new random seed: 121879813
+Determining workflow to use...
+Using specified workflow: Flux Quick from workflows\Flux Quick.json
+Initializing seed...

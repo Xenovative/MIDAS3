@@ -2343,6 +2343,7 @@ def generate_image():
     import os
     import json
     import time
+    import traceback
     import requests
     import base64
     import hashlib
@@ -2350,76 +2351,175 @@ def generate_image():
     import glob
     from flask import request, jsonify
     from datetime import datetime
+    
+    # Initialize logger at the start
+    app.logger.info("=== Starting image generation request ===")
 
     # Get request data
-    data = request.get_json()
-    prompt = data.get('prompt', '')
-    model = data.get('model', '')  # Optional: workflow name if using a specific workflow
-    conversation_id = data.get('conversation_id')  # Add conversation_id
+    app.logger.info("Parsing request data...")
+    try:
+        data = request.get_json()
+        if not data:
+            app.logger.error("No JSON data in request")
+            return jsonify({'status': 'error', 'message': 'No JSON data provided'}), 400
+            
+        prompt = data.get('prompt', '')
+        model = data.get('model', '')  # Optional: workflow name if using a specific workflow
+        conversation_id = data.get('conversation_id')  # Add conversation_id
+        
+        app.logger.info(f"Request data - Prompt: {prompt[:50]}..., Model: {model}, Conversation ID: {conversation_id}")
+        
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        app.logger.error(f"Error parsing request data: {str(e)}\n{error_trace}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Invalid request data',
+            'details': str(e),
+            'traceback': error_trace if app.debug else None
+        }), 400
     
-    # Create a hash of the request to deduplicate
-    request_key = hashlib.md5(f"{prompt}:{model}:{conversation_id}".encode()).hexdigest()
-    
-    # Check if we've seen this exact request recently (within the last 10 seconds)
-    current_time = time.time()
-    if request_key in recent_image_requests:
-        last_request_time, processing = recent_image_requests[request_key]
-        # If request is very recent and still processing, return 429 Too Many Requests
-        if current_time - last_request_time < RECENT_REQUEST_TIMEOUT and processing:
-            app.logger.warning(f"Duplicate image generation request detected within {RECENT_REQUEST_TIMEOUT} seconds: {prompt[:50]}")
+    # Get ComfyUI URL from config
+    try:
+        from config import COMFYUI_BASE_URL
+        comfyui_url = f"{COMFYUI_BASE_URL}/prompt"
+        app.logger.info(f"Using ComfyUI URL: {comfyui_url}")
+        
+        # Verify ComfyUI is reachable
+        try:
+            health_check = requests.get(f"{COMFYUI_BASE_URL}/system_stats", timeout=5)
+            if health_check.status_code != 200:
+                app.logger.error(f"ComfyUI health check failed with status {health_check.status_code}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f'ComfyUI service is not responding (HTTP {health_check.status_code})',
+                    'details': health_check.text[:500] if health_check.text else 'No response body'
+                }), 502
+        except requests.exceptions.RequestException as e:
+            app.logger.error(f"ComfyUI connection error: {str(e)}")
             return jsonify({
                 'status': 'error',
-                'message': 'Too many similar requests. Please wait before trying again.'
-            }), 429
+                'message': 'Failed to connect to ComfyUI service',
+                'details': str(e)
+            }), 503
+            
+        # Create a hash of the request to deduplicate
+        request_key = hashlib.md5(f"{prompt}:{model}:{conversation_id}".encode()).hexdigest()
+        
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        app.logger.error(f"Error initializing ComfyUI configuration: {str(e)}\n{error_trace}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to initialize image generation service',
+            'details': str(e),
+            'traceback': error_trace if app.debug else None
+        }), 500
+    
+    # Check if we've seen this exact request recently (within the last 10 seconds)
+    app.logger.info("Checking for duplicate requests...")
+    try:
+        current_time = time.time()
+        if request_key in recent_image_requests:
+            last_request_time, processing = recent_image_requests[request_key]
+            # If request is very recent and still processing, return 429 Too Many Requests
+            if current_time - last_request_time < RECENT_REQUEST_TIMEOUT and processing:
+                app.logger.warning(f"Duplicate image generation request detected within {RECENT_REQUEST_TIMEOUT} seconds: {prompt[:50]}")
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Too many similar requests. Please wait before trying again.'
+                }), 429
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        app.logger.error(f"Error checking for duplicate requests: {str(e)}\n{error_trace}")
+        # Continue execution even if this check fails
     
     # Mark this request as being processed
-    recent_image_requests[request_key] = (current_time, True)
+    app.logger.info("Marking request as processing...")
+    try:
+        recent_image_requests[request_key] = (current_time, True)
         
+        # Clean up old requests to prevent memory leaks
+        cleanup_keys = [k for k, (t, _) in recent_image_requests.items() 
+                      if current_time - t > RECENT_REQUEST_TIMEOUT * 2]
+        for k in cleanup_keys:
+            recent_image_requests.pop(k, None)
+            
+    except Exception as e:
+        app.logger.error(f"Error managing request tracking: {str(e)}")
+        # Continue anyway, this isn't critical
+    
     # Store the last used seed in a global variable
-    global last_used_seed
+    app.logger.info("Initializing seed...")
     if not hasattr(app, 'last_used_seed'):
         app.last_used_seed = random.randint(0, 2147483647)
+        app.logger.info(f"Initialized new random seed: {app.last_used_seed}")
         
     # Generate a unique identifier for this request to prevent caching
     request_id = str(uuid.uuid4())
     timestamp = int(time.time())
         
     # Extract augment parameters from the prompt
-    aspect_ratio = "1:1"  # Default square
-    steps = 20  # Default number of steps
-    seed = None  # Default to None, will be randomized later if not specified
-        
+    app.logger.info("Extracting parameters from prompt...")
+    aspect_ratio = None
+    steps = 20  # Default steps
+    seed = None
+    
+    # Log initial parameters
+    app.logger.info(f"Initial parameters - Steps: {steps}, Seed: {seed}, Aspect Ratio: {aspect_ratio}")
+    
     # Check for aspect ratio command
-    aspect_ratio_match = re.search(r'--ar\s+(\d+:\d+)', prompt)
-    if aspect_ratio_match:
-        aspect_ratio = aspect_ratio_match.group(1)
-        # Remove the command from the prompt
-        prompt = re.sub(r'--ar\s+\d+:\d+', '', prompt).strip()
+    app.logger.info("Processing aspect ratio...")
+    try:
+        aspect_ratio_match = re.search(r'--ar\s+(\d+:\d+)', prompt)
+        if aspect_ratio_match:
+            aspect_ratio = aspect_ratio_match.group(1)
+            # Remove the command from the prompt
+            prompt = re.sub(r'--ar\s+\d+:\d+', '', prompt).strip()
+            app.logger.info(f"Found aspect ratio: {aspect_ratio}")
+    except Exception as e:
+        app.logger.error(f"Error processing aspect ratio: {str(e)}")
+        aspect_ratio = None
         
     # Check for steps command
-    steps_match = re.search(r'--steps\s+(\d+)', prompt)
-    if steps_match:
-        steps = int(steps_match.group(1))
-        # Remove the command from the prompt
-        prompt = re.sub(r'--steps\s+\d+', '', prompt).strip()
+    app.logger.info("Processing steps...")
+    try:
+        steps_match = re.search(r'--steps\s+(\d+)', prompt)
+        if steps_match:
+            steps = int(steps_match.group(1))
+            # Remove the command from the prompt
+            prompt = re.sub(r'--steps\s+\d+', '', prompt).strip()
+            app.logger.info(f"Found steps: {steps}")
+    except Exception as e:
+        app.logger.error(f"Error processing steps: {str(e)}")
+        steps = 20  # Default value
         
     # Check for seed command
-    seed_match = re.search(r'--seed\s+(\w+)', prompt)
-    if seed_match:
-        seed_value = seed_match.group(1)
-        # Handle 'last' keyword for seed
-        if seed_value.lower() == 'last':
-            seed = app.last_used_seed
+    app.logger.info("Processing seed...")
+    try:
+        seed_match = re.search(r'--seed\s+(\w+)', prompt)
+        if seed_match:
+            seed_value = seed_match.group(1)
+            # Handle 'last' keyword for seed
+            if seed_value.lower() == 'last':
+                seed = getattr(app, 'last_used_seed', random.randint(0, 2147483647))
+                app.logger.info(f"Using last seed: {seed}")
+            else:
+                try:
+                    seed = int(seed_value)
+                    app.logger.info(f"Using specified seed: {seed}")
+                except ValueError:
+                    # If not a valid integer, use a random seed
+                    seed = random.randint(0, 2147483647)
+                    app.logger.info(f"Using random seed (invalid input): {seed}")
+            # Remove the command from the prompt
+            prompt = re.sub(r'--seed\s+\w+', '', prompt).strip()
         else:
-            try:
-                seed = int(seed_value)
-            except ValueError:
-                # If not a valid integer, use a random seed
-                seed = random.randint(0, 2147483647)
-        # Remove the command from the prompt
-        prompt = re.sub(r'--seed\s+\w+', '', prompt).strip()
-    else:
-        # If no seed specified, use a random seed
+            # If no seed specified, use a random seed
+            seed = random.randint(0, 2147483647)
+            app.logger.info(f"Using new random seed: {seed}")
+    except Exception as e:
+        app.logger.error(f"Error processing seed: {str(e)}")
         seed = random.randint(0, 2147483647)
         
     # Parse aspect ratio
@@ -2439,50 +2539,135 @@ def generate_image():
             # Fall back to default size
             width, height = 1024, 1024
         
-    # ComfyUI API endpoint
-    comfy_api_url = os.environ.get('COMFYUI_API_URL', 'http://localhost:8188')
+    # Import ComfyUI config
+    from config import COMFYUI_BASE_URL
+    
+    # ComfyUI paths
+    comfy_api_url = COMFYUI_BASE_URL
     comfy_output_dir = os.environ.get('COMFYUI_OUTPUT_DIR', 'MIDAS_standalone/ComfyUI/Output')
         
     # Determine which workflow to use
+    app.logger.info("Determining workflow to use...")
     workflow = None
     workflow_file = None
-        
-    if model and model.startswith('workflow:'):
-        # Extract workflow name from model string
-        workflow = model.replace('workflow:', '')
-        workflow_file = f'workflows/{workflow}.json'
-    else:
-        # Default workflow
-        workflow = "Flux 1.1"
-        workflow_file = 'workflows/flux1.1.json'
+    
+    try:
+        if model and model.startswith('workflow:'):
+            # Extract workflow name from model string
+            workflow = model.replace('workflow:', '')
+            workflow_file = os.path.join('workflows', f'{workflow}.json')
+            app.logger.info(f"Using specified workflow: {workflow} from {workflow_file}")
+        else:
+            # Default workflow
+            workflow = "Flux Quick"
+            workflow_file = os.path.join('workflows', 'Flux Quick.json')
+            app.logger.info(f"Using default workflow: {workflow} from {workflow_file}")
+            
+        # Verify workflow file exists
+        if not os.path.exists(workflow_file):
+            error_msg = f"Workflow file not found: {workflow_file}"
+            app.logger.error(error_msg)
+            return jsonify({
+                'status': 'error',
+                'message': error_msg,
+                'available_workflows': [f for f in os.listdir('workflows') if f.endswith('.json')]
+            }), 404
+            
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        app.logger.error(f"Error determining workflow: {str(e)}\n{error_trace}")
+        return jsonify({
+            'status': 'error',
+            'message': 'Failed to determine workflow',
+            'details': str(e),
+            'traceback': error_trace if app.debug else None
+        }), 500
         
     if workflow:
         # Load the workflow JSON
+        app.logger.info(f"Loading workflow from file: {workflow_file}")
         try:
-            with open(workflow_file, 'r') as f:
-                comfyui_payload = json.load(f)
+            # Get absolute path for better error reporting
+            abs_workflow_path = os.path.abspath(workflow_file)
+            app.logger.info(f"Absolute workflow path: {abs_workflow_path}")
             
-            # Find the text prompt node and update it
-            for node_id, node_data in comfyui_payload.items():
-                if node_data.get('class_type') == 'CLIPTextEncode':
-                    # Just use the prompt as-is without adding request ID to avoid token length issues
-                    node_data['inputs']['text'] = prompt
+            # Check file exists again with absolute path
+            if not os.path.exists(abs_workflow_path):
+                raise FileNotFoundError(f"Workflow file not found at: {abs_workflow_path}")
                 
-                # Update resolution if there's a resolution node
-                if 'width' in node_data.get('inputs', {}) and 'height' in node_data.get('inputs', {}):
-                    node_data['inputs']['width'] = width
-                    node_data['inputs']['height'] = height
+            # Check file permissions
+            if not os.access(abs_workflow_path, os.R_OK):
+                raise PermissionError(f"No read permissions for workflow file: {abs_workflow_path}")
+                
+            # Read file content
+            with open(abs_workflow_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+                app.logger.info(f"Successfully read {len(file_content)} bytes from workflow file")
+                
+                # Parse JSON
+                comfyui_payload = json.loads(file_content)
+                app.logger.info(f"Successfully parsed workflow JSON with {len(comfyui_payload)} top-level keys")
+            
+            # Process workflow nodes
+            app.logger.info("Processing workflow nodes...")
+            try:
+                prompt_nodes_updated = 0
+                resolution_nodes_updated = 0
+                steps_nodes_updated = 0
+                seed_nodes_updated = 0
+                
+                for node_id, node_data in comfyui_payload.items():
+                    if not isinstance(node_data, dict):
+                        app.logger.warning(f"Skipping non-dict node {node_id}")
+                        continue
+                        
+                    node_type = node_data.get('class_type', 'unknown')
+                    inputs = node_data.get('inputs', {})
                     
-                # Update steps if there's a sampler node
-                if 'steps' in node_data.get('inputs', {}):
-                    node_data['inputs']['steps'] = steps
+                    # Update prompt in text encoder nodes
+                    if node_type == 'CLIPTextEncode' and 'text' in inputs:
+                        app.logger.debug(f"Updating prompt in node {node_id} ({node_type})")
+                        node_data['inputs']['text'] = prompt
+                        prompt_nodes_updated += 1
                     
-                # Update seed if there's a seed node
-                if 'seed' in node_data.get('inputs', {}):
-                    node_data['inputs']['seed'] = seed
-                # Check for noise_seed parameter
-                elif 'noise_seed' in node_data.get('inputs', {}):
-                    node_data['inputs']['noise_seed'] = seed
+                    # Update resolution parameters
+                    if 'width' in inputs and 'height' in inputs:
+                        app.logger.debug(f"Updating resolution in node {node_id} ({node_type}): {width}x{height}")
+                        node_data['inputs']['width'] = width
+                        node_data['inputs']['height'] = height
+                        resolution_nodes_updated += 1
+                        
+                    # Update steps parameter
+                    if 'steps' in inputs:
+                        app.logger.debug(f"Updating steps in node {node_id} ({node_type}): {steps}")
+                        node_data['inputs']['steps'] = steps
+                        steps_nodes_updated += 1
+                        
+                    # Update seed parameters
+                    if 'seed' in inputs:
+                        app.logger.debug(f"Updating seed in node {node_id} ({node_type}): {seed}")
+                        node_data['inputs']['seed'] = seed
+                        seed_nodes_updated += 1
+                    elif 'noise_seed' in inputs:
+                        app.logger.debug(f"Updating noise_seed in node {node_id} ({node_type}): {seed}")
+                        node_data['inputs']['noise_seed'] = seed
+                        seed_nodes_updated += 1
+                
+                app.logger.info(f"Workflow processing complete - "
+                              f"Prompt nodes: {prompt_nodes_updated}, "
+                              f"Resolution nodes: {resolution_nodes_updated}, "
+                              f"Steps nodes: {steps_nodes_updated}, "
+                              f"Seed nodes: {seed_nodes_updated}")
+                
+            except Exception as e:
+                error_trace = traceback.format_exc()
+                app.logger.error(f"Error processing workflow nodes: {str(e)}\n{error_trace}")
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Failed to process workflow nodes',
+                    'details': str(e),
+                    'traceback': error_trace if app.debug else None
+                }), 500
         except Exception as e:
             return jsonify({'status': 'error', 'message': f'Error loading workflow: {str(e)}'}), 500
     else:
@@ -2490,41 +2675,138 @@ def generate_image():
         
     # Submit to ComfyUI
     comfyui_url = f"{comfy_api_url}/prompt"
-    print(f"Submitting to ComfyUI at {comfyui_url} with payload: {json.dumps(comfyui_payload, indent=2)}")
+    app.logger.info(f"Submitting to ComfyUI at {comfyui_url}")
     
     try:
-        # Set a reasonable timeout for the initial request (30s connect, 60s read)
-        resp = requests.post(comfyui_url, json={'prompt': comfyui_payload}, timeout=(30, 150))
-        print(f"ComfyUI response status: {resp.status_code}, content: {resp.text}")
+        # Log the payload (without the full prompt to avoid log spam)
+        payload_for_log = json.dumps(comfyui_payload, indent=2)[:1000] + '...'  # Truncate long payloads
+        app.logger.info(f"Sending request to ComfyUI with payload: {payload_for_log}")
+        
+        # Increased timeouts for slower systems
+        CONNECT_TIMEOUT = 60  # seconds
+        READ_TIMEOUT = 300    # 5 minutes for initial response
+        
+        app.logger.info(f"Using timeouts - Connect: {CONNECT_TIMEOUT}s, Read: {READ_TIMEOUT}s")
+        
+        start_time = time.time()
+        resp = requests.post(
+            comfyui_url, 
+            json={'prompt': comfyui_payload}, 
+            timeout=(CONNECT_TIMEOUT, READ_TIMEOUT),
+            headers={
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        )
+        request_duration = time.time() - start_time
+        
+        app.logger.info(f"ComfyUI response received in {request_duration:.2f}s - Status: {resp.status_code}")
+        
+        # Log response details
+        try:
+            response_data = resp.json()
+            app.logger.debug(f"ComfyUI response data: {json.dumps(response_data, indent=2)[:1000]}...")
+            
+            if 'error' in response_data:
+                app.logger.error(f"ComfyUI returned an error: {response_data.get('error', 'Unknown error')}")
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Image generation service returned an error',
+                    'details': response_data.get('error')
+                }), 502
+                
+            result = response_data
+            prompt_id = result.get('prompt_id')
+            if not prompt_id:
+                raise ValueError("No prompt_id in ComfyUI response")
+                
+            app.logger.info(f"Successfully submitted to ComfyUI with prompt_id: {prompt_id}")
+            
+        except json.JSONDecodeError:
+            app.logger.error(f"Failed to parse ComfyUI response as JSON. Status: {resp.status_code}, Content: {resp.text[:500]}")
+            return jsonify({
+                'status': 'error',
+                'message': 'Invalid response from image generation service',
+                'details': f'Expected JSON but got: {resp.text[:200]}...'
+            }), 502
+            
         resp.raise_for_status()
-        result = resp.json()
-        print(f"ComfyUI prompt_id: {result.get('prompt_id')}")
-    except requests.exceptions.Timeout:
-        app.logger.error("ComfyUI API request timed out")
+        
+    except requests.exceptions.Timeout as e:
+        app.logger.error(f"ComfyUI API request timed out after 30s: {str(e)}")
         return jsonify({
             'status': 'error',
-            'message': 'Image generation service timed out. Please try again.'
+            'message': 'Image generation service timed out. The request took too long to process.',
+            'details': str(e)
         }), 504
+        
     except requests.exceptions.RequestException as e:
-        app.logger.error(f"Error calling ComfyUI API: {str(e)}")
+        error_type = type(e).__name__
+        app.logger.error(f"Error calling ComfyUI API ({error_type}): {str(e)}")
+        
+        # Provide more specific error messages for common issues
+        if 'ConnectionError' in error_type:
+            error_msg = 'Failed to connect to the image generation service. Please check if the service is running.'
+        elif 'Timeout' in error_type:
+            error_msg = 'The image generation service took too long to respond.'
+        else:
+            error_msg = f'Failed to communicate with the image generation service: {str(e)}'
+            
         return jsonify({
             'status': 'error',
-            'message': f'Failed to communicate with the image generation service: {str(e)}'
-        }), 500
+            'message': error_msg,
+            'details': str(e),
+            'error_type': error_type
+        }), 500 if 'ConnectionError' in error_type else 502
         
     # Wait for the generation to complete with more frequent checks
-    initial_wait = 5  # Reduced initial wait since we're using API
-    check_interval = 2  # Check every 2 seconds
-    max_checks = 120   # Maximum number of checks (4 min total with 2 sec intervals)
+    initial_wait = 10  # Initial wait before starting to poll
+    check_interval = 5  # Check every 5 seconds
+    max_checks = 180   # Maximum number of checks (15 min total with 5 sec intervals)
+    
+    app.logger.info(f"Starting image generation polling for prompt_id {result.get('prompt_id')}")
+    app.logger.info(f"Polling parameters - Initial wait: {initial_wait}s, Interval: {check_interval}s, Max checks: {max_checks}")
+    
+    # Initial wait before starting to poll
+    time.sleep(initial_wait)
     
     app.logger.info(f"Starting image generation polling for prompt_id {result.get('prompt_id')}")
     
     # Poll until we get a result or hit max attempts
+    last_progress = 0
+    last_status = None
+    
     for attempt in range(max_checks):
         try:
             # Check for results using the ComfyUI API
-            history_url = f'{comfy_api_url}/history/{result.get("prompt_id")}'
+            history_url = f'{COMFYUI_BASE_URL}/history/{result.get("prompt_id")}'
+            queue_url = f'{COMFYUI_BASE_URL}/queue'
+            
+            # Check queue status first
+            try:
+                queue_resp = requests.get(queue_url, timeout=5)
+                if queue_resp.status_code == 200:
+                    queue_data = queue_resp.json()
+                    app.logger.debug(f"Queue status: {json.dumps(queue_data, indent=2)}")
+            except Exception as e:
+                app.logger.warning(f"Error checking queue status: {str(e)}")
+            
+            # Get generation status
             history_resp = requests.get(history_url, timeout=10)
+            
+            # Log progress periodically
+            if attempt % 5 == 0:  # Log every 5 attempts (every ~25 seconds with 5s interval)
+                app.logger.info(f"Polling attempt {attempt + 1}/{max_checks} for prompt_id {result.get('prompt_id')}")
+                
+                # Get system stats to check load
+                try:
+                    stats_url = f'{COMFYUI_BASE_URL}/system_stats'
+                    stats_resp = requests.get(stats_url, timeout=5)
+                    if stats_resp.status_code == 200:
+                        stats = stats_resp.json()
+                        app.logger.info(f"System stats - CPU: {stats.get('cpu_usage')}%, GPU: {stats.get('gpu_usage')}%, Memory: {stats.get('memory_usage')}%")
+                except Exception as e:
+                    app.logger.warning(f"Error getting system stats: {str(e)}")
             
             if history_resp.status_code == 200:
                 history_data = history_resp.json()
@@ -2538,7 +2820,7 @@ def generate_image():
                         filename = image_data['filename']
                         
                         # Get the image directly from ComfyUI
-                        image_url = f"{comfy_api_url}/view?filename={filename}"
+                        image_url = f"{COMFYUI_BASE_URL}/view?filename={filename}"
                         if 'subfolder' in image_data and image_data['subfolder']:
                             image_url += f"&subfolder={image_data['subfolder']}"
                         
