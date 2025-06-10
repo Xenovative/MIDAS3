@@ -802,6 +802,31 @@
             transform: scale(1.1);
         }
         
+        /* Link styles for chat messages */
+        .chat-container a {
+            color: #3b82f6; /* blue-500 */
+            text-decoration: none;
+            transition: all 0.2s ease;
+            border-bottom: 1px solid transparent;
+        }
+        
+        .chat-container a:hover {
+            text-decoration: underline;
+            border-bottom-color: currentColor;
+        }
+        
+        [data-theme="dark"] .chat-container a {
+            color: #60a5fa; /* blue-400 for better visibility in dark mode */
+        }
+        
+        .chat-container a:visited {
+            color: #8b5cf6; /* violet-500 */
+        }
+        
+        [data-theme="dark"] .chat-container a:visited {
+            color: #a78bfa; /* violet-400 for dark mode */
+        }
+        
         .notification {
             position: fixed;
             top: 20px;

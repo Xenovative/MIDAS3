@@ -1591,11 +1591,19 @@ function addMessageButtons(messageElement, role) {
     messageElement.appendChild(actionsContainer);
 }
 
+// Function to sanitize content by removing HTML tags
+function sanitizeContent(content) {
+    if (!content) return '';
+    return content.replace(/<[^>]*>/g, '');
+}
+
 // Function to add a message to the chat
 function addMessage(content, isLoading = false, role = 'user', thinking = '', messageId = null, attachmentFilename = null, images = null) { 
+    // Sanitize content to remove any HTML tags
+    const sanitizedContent = sanitizeContent(content);
     // Skip if this is a duplicate of the last message
     if (messageHistory.length > 0 && 
-        messageHistory[messageHistory.length-1].content === content &&
+        messageHistory[messageHistory.length-1].content === sanitizedContent &&
         messageHistory[messageHistory.length-1].isUser === (role === 'user')) {
         return;
     }
@@ -1609,7 +1617,7 @@ function addMessage(content, isLoading = false, role = 'user', thinking = '', me
     const historyId = ++lastMessageId;
     messageHistory.push({
         id: historyId, 
-        content, 
+        content: sanitizedContent, 
         isUser: role === 'user', 
         type: role, 
         thinking, 
@@ -1747,14 +1755,14 @@ function addMessage(content, isLoading = false, role = 'user', thinking = '', me
                 loadingIndicator.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Thinking...';
                 mainResponse.appendChild(loadingIndicator);
             } else {
-                mainResponse.innerHTML = renderMarkdown(content);
+                mainResponse.innerHTML = renderMarkdown(sanitizedContent);
             }
             
             messageElement.appendChild(mainResponse);
         }
     } else if (role === 'user') {
         // For user messages, display content and attachment if present
-        messageElement.innerHTML = content;
+        messageElement.innerHTML = formatMarkdown(sanitizedContent);
         
         // Add attachment display if there's an attachment filename
         if (attachmentFilename) {
@@ -1768,7 +1776,7 @@ function addMessage(content, isLoading = false, role = 'user', thinking = '', me
         }
     } else {
         // For system messages, just set innerHTML
-        messageElement.innerHTML = content;
+        messageElement.innerHTML = formatMarkdown(sanitizedContent);
 }
 
     // Add buttons only for user and assistant messages
@@ -1782,20 +1790,43 @@ function addMessage(content, isLoading = false, role = 'user', thinking = '', me
     return messageElement;
 }
 
-// Format markdown without extracting thinking tags
+// Format markdown with common formatting and links
 function formatMarkdown(text) {
+    if (!text) return '';
+    
     // Clean up various answer prefixes
-    // Handle at the beginning of text
-    text = text.replace(/^(\s*)(Answer:|Final Answer:|My answer:|Here's my answer:|The answer is:)(\s*)/i, '');
+    text = text
+        // Handle at the beginning of text
+        .replace(/^(\s*)(Answer:|Final Answer:|My answer:|Here's my answer:|The answer is:)(\s*)/i, '')
+        // Handle after a newline
+        .replace(/\n(\s*)(Answer:|Final Answer:|My answer:|Here's my answer:|The answer is:)(\s*)/gi, '\n');
     
-    // Handle after a newline
-    text = text.replace(/\n(\s*)(Answer:|Final Answer:|My answer:|Here's my answer:|The answer is:)(\s*)/gi, '\n');
+    // Process markdown links [text](url)
+    text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {
+        // Ensure URL has a protocol
+        if (!/^https?:\/\//.test(url)) {
+            url = 'http://' + url;
+        }
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${text}</a>`;
+    });
     
+    // Process bare URLs - exclude closing parenthesis from URL capture
+    text = text.replace(/(https?:\/\/[^\s<]+[^<.,:;"'\]\s\)])/g, function(url) {
+        // Skip if already in an anchor tag
+        if (/<a\s[^>]*href=["']?[^>]*>.*<\/a>/i.test(url)) {
+            return url;
+        }
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">${url}</a>`;
+    });
+    
+    // Basic markdown formatting
     return text
         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')  // bold
         .replace(/\*(.*?)\*/g, '<em>$1</em>')              // italic
-        .replace(/`([^`]+)`/g, '<code>$1</code>')          // code
-        .replace(/\n/g, '<br>');                           // newlines
+        .replace(/`([^`]+)`/g, '<code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">$1</code>') // code
+        .replace(/\n/g, '<br>')                            // newlines
+        .replace(/^##\s+(.*$)/gm, '<h2 class="text-xl font-bold mt-4 mb-2">$1</h2>')  // h2
+        .replace(/^###\s+(.*$)/gm, '<h3 class="text-lg font-bold mt-3 mb-1">$1</h3>'); // h3
 }
 
 // Helper: Detect if the selected model/bot is image-capable (ComfyUI bot or workflow model)

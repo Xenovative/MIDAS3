@@ -68,20 +68,66 @@ export OLLAMA_HOST=http://localhost:11434
 echo "Initializing MIDAS3 database..."
 flask init-db
 
-# Clone ComfyUI if not exists
+# Clone or update ComfyUI
 if [ ! -d "ComfyUI" ]; then
     echo "Cloning ComfyUI..."
     git clone https://github.com/comfyanonymous/ComfyUI.git
-    
-    # Set up ComfyUI virtual environment
-    echo "Setting up ComfyUI virtual environment..."
-    python3.10 -m venv ComfyUI/venv
-    source ComfyUI/venv/bin/activate
-    pip install --upgrade pip
-    pip install torch torchvision torchaudio
-    pip install -r ComfyUI/requirements.txt
-    deactivate  # Exit ComfyUI venv
 fi
+
+# Navigate to ComfyUI directory
+cd ComfyUI
+
+# Set up ComfyUI virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    echo "Creating ComfyUI virtual environment..."
+    python3.10 -m venv venv
+    
+    # Activate the virtual environment
+    source venv/bin/activate
+    
+    # Upgrade pip and install dependencies
+    echo "Installing ComfyUI dependencies..."
+    pip install --upgrade pip
+    
+    # Install PyTorch with CUDA support if available, otherwise CPU-only
+    if command -v nvcc &> /dev/null; then
+        echo "CUDA detected - installing PyTorch with CUDA support..."
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    else
+        echo "CUDA not detected - installing CPU-only PyTorch..."
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    fi
+    
+    # Install ComfyUI requirements
+    pip install -r requirements.txt
+    
+    # Install additional common nodes
+    echo "Installing common custom nodes..."
+    mkdir -p custom_nodes
+    
+    # Example: Install ComfyUI Manager
+    if [ ! -d "custom_nodes/ComfyUI-Manager" ]; then
+        git clone https://github.com/ltdrdata/ComfyUI-Manager.git custom_nodes/ComfyUI-Manager
+    fi
+    
+    deactivate  # Exit ComfyUI venv
+    
+    echo "ComfyUI virtual environment setup complete."
+else
+    echo "ComfyUI virtual environment already exists."
+    
+    # Update ComfyUI
+    echo "Updating ComfyUI..."
+    git pull
+    
+    # Update dependencies if needed
+    source venv/bin/activate
+    pip install --upgrade -r requirements.txt
+    deactivate
+fi
+
+# Return to MIDAS3 directory
+cd ..
 
 # Start services in separate terminal windows
 echo "Starting services in new terminal windows..."

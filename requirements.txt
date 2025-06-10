@@ -32,6 +32,8 @@ python-socketio==5.13.0
 Flask-SocketIO==5.5.1
 Flask-Login==0.6.3
 
+# Web Search
+google-search-results>=2.4.2  # SerpAPI client
 
 # Optional
 boto3==1.38.2

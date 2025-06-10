@@ -1,4 +1,5 @@
 {
+  "serpapi_key": "abab911353a04c6eaeb04397353cf81de6436ad18eeb899949a2660805e7c8b6",
   "default_model": "llama3.1:8b",
   "default_embedding_model": "mxbai-embed-large:latest",
   "visible_models": [

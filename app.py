@@ -646,6 +646,15 @@ def generate():
                 'quota_info': quota_info
             }), 429  # Too Many Requests
         
+        # Check for web search flag
+        web_search = '--web' in user_message
+        if web_search:
+            # Remove the --web flag from the message
+            user_message = re.sub(r'\s*--web\b', '', user_message).strip()
+            # Force RAG to be used for web search
+            use_rag = True
+            rag_enabled = True
+            
         # If no message and no attachment, return error
         if not user_message and not attachment_filename:
             return jsonify({'status': 'error', 'message': 'No message provided'}), 400
@@ -750,7 +759,12 @@ def generate():
                 
         # Apply the rules
         if not secret:
-            if use_bot_knowledge and use_conversation_docs:
+            if web_search:
+                # Web search takes priority over other RAG sources
+                app.logger.info("[RAG] Web search requested, using web search results")
+                use_rag = True
+                rag_enabled = True
+            elif use_bot_knowledge and use_conversation_docs:
                 # Rule 2: Conversation with a bot with knowledge base AND documents uploaded
                 app.logger.info(f"[RAG] Using both bot knowledge base AND conversation documents for RAG")
                 use_rag = True
@@ -791,7 +805,16 @@ def generate():
                 # Use ThreadPoolExecutor to run with timeout
                 with concurrent.futures.ThreadPoolExecutor() as executor:
                     # Configure retrieval based on our rules
-                    if use_bot_knowledge and use_conversation_docs:
+                    if web_search:
+                        # For web search, we want to get web results first
+                        app.logger.info("[RAG] Performing web search for query")
+                        future = executor.submit(
+                            rag.retrieve_context,
+                            query=user_message,
+                            web_search=True,
+                            operation_id=operation_id
+                        )
+                    elif use_bot_knowledge and use_conversation_docs:
                         # Rule 2: Use both bot knowledge and conversation documents
                         app.logger.info(f"[RAG] Using both bot knowledge and conversation documents")
                         future = executor.submit(rag.retrieve_context, 
@@ -1282,20 +1305,24 @@ def generate():
         
         # If we have RAG context, add it to the system prompt
         if use_rag and retrieved_context:
-            if system_prompt:
-                # Append RAG context to existing system prompt
+            if web_search:
+                # For web searches, include the raw results directly
+                context_prefix = "Here are the latest web search results for your query:\n\n"
+                enhanced_system_prompt = f"{system_prompt}\n\n{context_prefix}{retrieved_context}"
+            elif system_prompt:
+                # For regular RAG, use the standard knowledge base format
                 enhanced_system_prompt = f"{system_prompt}\n\nKnowledge Base Information:\n{retrieved_context}"
             else:
                 # Create new system prompt with RAG context
                 enhanced_system_prompt = f"You have access to the following knowledge base information. Use it to answer the user's question accurately:\n\n{retrieved_context}"
-                
+            
             # Log the enhanced system prompt
-            app.logger.info(f"[RAG] Enhanced system prompt with {len(retrieved_context)} characters of knowledge")
+            app.logger.info(f"[RAG] {'Web search' if web_search else 'Knowledge base'} context added to prompt")
             
             # Add the enhanced system prompt
             system_msg = {
                 "role": "system",
-                "content": enhanced_system_prompt
+                "content": enhanced_system_prompt.strip()
             }
             messages.append(system_msg)
         elif system_prompt:

@@ -1,5 +1,15 @@
 import os
+import re
 import uuid
+import json
+import time
+import logging
+from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime
+import chromadb
+from chromadb.config import Settings
+from chromadb.errors import InvalidDimensionException
+from web_search import search_web, format_web_results, get_web_context
 from langchain_community.embeddings import OllamaEmbeddings
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader, UnstructuredMarkdownLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -386,7 +396,7 @@ def has_documents(collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None)
         print(f"Error checking for documents in vector store: {e}")
         return False
 
-def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=2000, operation_id=None, recursive_depth=0, max_recursive_depth=1):
+def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversation_id=None, bot_collection=None, n_results=2000, operation_id=None, recursive_depth=0, max_recursive_depth=1, web_search=False):
     """Retrieves relevant document chunks for a given query using LangChain Chroma.
     
     Args:
@@ -396,10 +406,24 @@ def retrieve_context(query, collection_name=DEFAULT_COLLECTION_NAME, conversatio
         bot_collection: If provided, will search in the bot's knowledge base collection
         n_results: Number of results to return
         operation_id: Unique identifier for tracking the retrieval process
+        recursive_depth: Current depth of recursive search
+        max_recursive_depth: Maximum depth for recursive search
+        web_search: If True, perform a web search instead of using local documents
         
     Returns:
         str: The retrieved context as a string
     """
+    # Handle web search if enabled
+    if web_search and recursive_depth == 0:
+        # Only perform web search at the top level
+        web_context = get_web_context(query)
+        if web_context:
+            return f"{web_context}\n\n"
+            
+    # Clean up query if web search was in the query string
+    if '--web' in query:
+        query = re.sub(r'\s*--web\b', '', query).strip()
+    
     try:
         # Initialize Chroma client
         import chromadb
