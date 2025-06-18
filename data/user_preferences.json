@@ -1,7 +1,7 @@
 {
   "1": {
     "default_model": "llama3.1:8b",
-    "default_embedding_model": "mxbai-embed-large:latest",
+    "default_embedding_model": "all-minilm:latest",
     "visible_models": [
       "llama3.2:latest",
       "mistral-small3.1:latest",

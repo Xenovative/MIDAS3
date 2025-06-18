@@ -2822,14 +2822,13 @@ async function handleDocumentUpload() {
     }
 
     const file = docUploadInput.files[0];
-    const allowedTypes = ['text/plain', 'application/pdf', 'text/markdown'];
-    const allowedExtensions = ['.txt', '.pdf', '.md'];
+    const allowedTypes = ['text/plain', 'application/pdf', 'text/markdown', 'text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+    const allowedExtensions = ['.txt', '.pdf', '.md', '.csv', '.xls', '.xlsx'];
     const fileExtension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
 
-    // Basic client-side check for extension and potentially MIME type
-    // Note: MIME type check can be unreliable, server-side validation is crucial.
-    if (!allowedExtensions.includes(fileExtension) /* && !allowedTypes.includes(file.type) */) {
-        uploadStatus.textContent = 'Invalid file type. Allowed: .txt, .pdf, .md';
+    // Basic client-side check for extension
+    if (!allowedExtensions.includes(fileExtension)) {
+        uploadStatus.textContent = 'Invalid file type. Allowed: ' + allowedExtensions.join(', ');
         setTimeout(() => uploadStatus.textContent = '', 4000);
         docUploadInput.value = ''; // Clear the hidden file input
         return;

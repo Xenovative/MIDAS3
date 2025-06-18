@@ -2184,7 +2184,7 @@ def reset_user_quota_counters(user_id):
         }), 500
 
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'docs')
-ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'xml', 'json'}
+ALLOWED_EXTENSIONS = {'txt', 'pdf', 'md', 'xml', 'json', 'csv', 'xls', 'xlsx'}
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
@@ -2226,37 +2226,41 @@ def upload_document():
             
             # Process and index the file
             try:
-                if filename.endswith('.pdf'):
-                    loader = PyPDFLoader(file_path)
-                elif filename.endswith('.xml'):
-                    loader = UnstructuredXMLLoader(file_path)
-                elif filename.endswith('.md'):
-                    loader = UnstructuredMarkdownLoader(file_path)
-                else:  # .txt
-                    loader = TextLoader(file_path)
-                    
-                documents = loader.load()
-                # Add document to vector store using the conversation-specific function
-                success = rag.add_documents(documents, conversation_id=conversation_id)
+                # For all file types, use the appropriate loader via add_single_document_to_store
+                app.logger.info(f"Starting document indexing for {filename}...")
+                
+                # For CSV/Excel files, add more detailed logging
+                if filename.lower().endswith(('.csv', '.xls', '.xlsx')):
+                    app.logger.info(f"Processing {filename} with custom loader. This may take a moment for large files...")
+                
+                # Process the file with the appropriate loader
+                success = rag.add_single_document_to_store(file_path, conversation_id=conversation_id)
+                
                 if success:
-                    app.logger.info(f'Successfully processed and indexed {len(documents)} documents from {filename}')
+                    app.logger.info(f'Successfully processed and indexed document: {filename}')
                 else:
-                    raise Exception('Failed to add documents to vector store')
+                    raise Exception('Failed to process and index document')
+                    
             except Exception as e:
                 app.logger.error(f'Error processing file {filename}: {str(e)}')
                 if os.path.exists(file_path):
-                    os.remove(file_path)
-                if 'saved_files' in locals() and filename in saved_files:
-                    saved_files.remove(filename)
-            
-            # Call RAG to index the new file with conversation-specific collection
-            success = rag.add_single_document_to_store(file_path, conversation_id=conversation_id)
+                    try:
+                        os.remove(file_path)
+                    except OSError as oe:
+                        app.logger.error(f"Error removing file {file_path} after processing error: {oe}")
+                return jsonify({'status': 'error', 'message': f'Error processing file: {str(e)}'}), 500
             
             if success:
+                if filename.lower().endswith(('.csv', '.xls', '.xlsx')):
+                    app.logger.info(f"Successfully processed {filename} with custom loader")
+                
+                doc_id = db.add_conversation_document(conversation_id, filename, file_path)
+                app.logger.info(f"Document {filename} indexed successfully with ID: {doc_id}")
+                
                 return jsonify({
                     'status': 'success', 
                     'message': f'Document \'{filename}\' uploaded and indexed successfully.',
-                    'document_id': db.add_conversation_document(conversation_id, filename, file_path)
+                    'document_id': doc_id
                 })
             else:
                 # Remove the document from the database if indexing failed

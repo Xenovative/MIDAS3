@@ -75,6 +75,8 @@ def get_available_embedding_models():
             'bge',
             'dmeta-embedding-zh',
             'herald/dmeta-embedding-zh'
+            'all-minilm'
+            'all-minilm-latest'
         ]
         
         if 'models' in models_data and models_data['models']:

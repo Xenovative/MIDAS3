@@ -1,0 +1,6 @@
+Name,Age,Date,Salary,Department,Active,Expenses,Revenue,Profit
+John Doe,32,2023-01-15,75000.5,Engineering,True,25000,120000,95000
+Jane Smith,28,2023-02-20,82000.75,Marketing,True,30000,150000,120000
+Bob Johnson,45,2023-03-10,65000.25,Finance,False,22000,95000,73000
+Alice Brown,36,2023-04-05,90000.0,Product,True,35000,180000,145000
+Charlie Davis,52,2023-05-22,78500.5,HR,True,28000,110000,82000

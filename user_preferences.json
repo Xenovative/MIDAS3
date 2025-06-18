@@ -1,7 +1,7 @@
 {
   "serpapi_key": "abab911353a04c6eaeb04397353cf81de6436ad18eeb899949a2660805e7c8b6",
   "default_model": "llama3.1:8b",
-  "default_embedding_model": "mxbai-embed-large:latest",
+  "default_embedding_model": "all-minilm:latest",
   "visible_models": [
     "mannix/llama3.1-8b-abliterated:latest",
     "deepseek-r1:7b",
@@ -13,7 +13,7 @@
   "theme": "system",
   "1": {
     "default_model": "llama3.1:8b",
-    "default_embedding_model": "mxbai-embed-large:latest",
+    "default_embedding_model": "all-minilm:latest",
     "visible_models": [
       "mistral-small3.1:latest",
       "mannix/llama3.1-8b-abliterated:latest",

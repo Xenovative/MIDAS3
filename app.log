@@ -1,37 +1,101 @@
-[RAG] Request data: bot_id=None, conversation_id=89
-[RAG] Web search requested, using web search results
-[RAG] Querying with: 'Latest development on cloning...'
-[RAG] Performing web search for query
-[RAG] Started retrieval operation: rag_89_1749549903
-[RAG] Retrieved 2244 characters in 12.79s
-[RAG] Web search context added to prompt
-Generating title for conversation 89 using model phi3.5:latest
-Calling LLM with 5 messages
-Calling LLM with model phi3.5:latest for title generation
-Calling LLM model phi3.5:latest with 5 messages (timeout: 5s)
-Calling Ollama with model: phi3.5:latest at host: http://localhost:11434
-Raw LLM response: 'Latest Cloning Developments and Ethical Debates as of April 25, 2025'
-Final generated title: Latest Cloning Developments And Ethical Debates...
+File 'samplelib.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_148\samplelib.pdf'
+Starting document indexing for samplelib.pdf...
+Successfully processed and indexed document: samplelib.pdf
+Document samplelib.pdf indexed successfully with ID: 76
 Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
-[RAG] Request data: bot_id=None, conversation_id=90
-[RAG] Web search requested, using web search results
-[RAG] Querying with: 'Latest developments on unmanned drones tech...'
-[RAG] Performing web search for query
-[RAG] Started retrieval operation: rag_90_1749549973
-[RAG] Retrieved 1886 characters in 4.04s
-[RAG] Web search context added to prompt
-Generating title for conversation 90 using model phi3.5:latest
+[RAG] Request data: bot_id=None, conversation_id=148
+[RAG] Documents found for conversation 148
+[RAG] Using ONLY conversation documents for RAG
+[RAG] Querying with: 'What can you tell me from this book list?...'
+[RAG] Using ONLY conversation documents
+[RAG] Started retrieval operation: rag_148_1750212753
+[RAG] Retrieved 7125 characters in 0.05s
+[RAG] Context sample: '
+
+Retrieved 3 relevant context chunks (100.0% of knowledge base) for query: 'What can you tell me from this book list?'
+Sources consulted: 1 documents
+
+--- Context Chunk 1 (Relevance: 1.31) ---
+Source...'
+[RAG] Knowledge base context added to prompt
+Generating title for conversation 148 using model llama3.1:8b
 Calling LLM with 5 messages
-Calling LLM with model phi3.5:latest for title generation
-Calling LLM model phi3.5:latest with 5 messages (timeout: 5s)
-Calling Ollama with model: phi3.5:latest at host: http://localhost:11434
-Raw LLM response: 'Latest Unmanned Drone Tech Developments and Applications Discussion'
-Final generated title: Latest Unmanned Drone Tech Developments And App...
+Calling LLM with model llama3.1:8b for title generation
+Calling LLM model llama3.1:8b with 5 messages (timeout: 5s)
+Calling Ollama with model: llama3.1:8b at host: http://localhost:11434
+Raw LLM response: 'Analyzing the Provided Book List'
+Final generated title: Analyzing The Provided Book List
 Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
-[RAG] Request data: bot_id=None, conversation_id=90
-[RAG] Web search requested, using web search results
-[RAG] Querying with: 'LA riots in 2025...'
-[RAG] Performing web search for query
-[RAG] Started retrieval operation: rag_90_1749550043
-[RAG] Retrieved 1977 characters in 1.57s
-[RAG] Web search context added to prompt
+[RAG] Request data: bot_id=None, conversation_id=148
+[RAG] Documents found for conversation 148
+[RAG] Using ONLY conversation documents for RAG
+[RAG] Querying with: 'Fiction on this list...'
+[RAG] Using ONLY conversation documents
+[RAG] Started retrieval operation: rag_148_1750212775
+[RAG] Retrieved 7104 characters in 0.05s
+[RAG] Context sample: '
+
+Retrieved 3 relevant context chunks (100.0% of knowledge base) for query: 'Fiction on this list'
+Sources consulted: 1 documents
+
+--- Context Chunk 1 (Relevance: 1.85) ---
+Source: samplelib.pdf
+
+The ...'
+[RAG] Knowledge base context added to prompt
+Attempting to get available models...
+User preferred models: ['llama3.2:latest', 'mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Available models from Ollama: ['avr/sfr-embedding-mistral:latest', 'llama3.2:latest', 'mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Filtered models based on user preferences: ['llama3.2:latest', 'mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Serialized models: [{'name': 'llama3.2:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+File 'test.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_149\test.pdf'
+Starting document indexing for test.pdf...
+Successfully processed and indexed document: test.pdf
+Document test.pdf indexed successfully with ID: 77
+Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
+[RAG] Request data: bot_id=None, conversation_id=149
+[RAG] Documents found for conversation 149
+[RAG] Using ONLY conversation documents for RAG
+[RAG] Querying with: 'What can you tell me from this book list?...'
+[RAG] Using ONLY conversation documents
+[RAG] Started retrieval operation: rag_149_1750214794
+[RAG] No relevant context found
+Generating title for conversation 149 using model llama3.2:latest
+Calling LLM with 5 messages
+Calling LLM with model llama3.2:latest for title generation
+Calling LLM model llama3.2:latest with 5 messages (timeout: 5s)
+Calling Ollama with model: llama3.2:latest at host: http://localhost:11434
+Raw LLM response: 'Analyzing Book List Discussion'
+Final generated title: Analyzing Book List Discussion
+Attempting to get available models...
+User preferred models: ['llama3.2:latest', 'mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Available models from Ollama: ['avr/sfr-embedding-mistral:latest', 'llama3.2:latest', 'mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Filtered models based on user preferences: ['llama3.2:latest', 'mistral-small3.1:latest', 'mannix/llama3.1-8b-abliterated:latest', 'deepseek-r1:7b', 'phi3.5:latest', 'mistral:latest', 'llama3.1:8b', 'codellama:latest']
+Serialized models: [{'name': 'llama3.2:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral-small3.1:latest', 'details': {'parameter_size': ''}}, {'name': 'mannix/llama3.1-8b-abliterated:latest', 'details': {'parameter_size': '7B-8B'}}, {'name': 'deepseek-r1:7b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'phi3.5:latest', 'details': {'parameter_size': ''}}, {'name': 'mistral:latest', 'details': {'parameter_size': ''}}, {'name': 'llama3.1:8b', 'details': {'parameter_size': '7B-8B'}}, {'name': 'codellama:latest', 'details': {'parameter_size': ''}}]
+File 'samplelib.pdf' saved successfully to 'C:\AIapps\MIDAS3\docs\conversation_150\samplelib.pdf'
+Starting document indexing for samplelib.pdf...
+Successfully processed and indexed document: samplelib.pdf
+Document samplelib.pdf indexed successfully with ID: 78
+Quota check result: {'allowed': True, 'daily_limit': 100, 'daily_used': 0, 'monthly_limit': 3000, 'monthly_used': 0, 'max_attachment_size_kb': 5120}
+[RAG] Request data: bot_id=None, conversation_id=150
+[RAG] Documents found for conversation 150
+[RAG] Using ONLY conversation documents for RAG
+[RAG] Querying with: 'What can you tell me about this book list?...'
+[RAG] Using ONLY conversation documents
+[RAG] Started retrieval operation: rag_150_1750215178
+[RAG] Retrieved 7126 characters in 0.07s
+[RAG] Context sample: '
+
+Retrieved 3 relevant context chunks (100.0% of knowledge base) for query: 'What can you tell me about this book list?'
+Sources consulted: 1 documents
+
+--- Context Chunk 1 (Relevance: 1.86) ---
+Sourc...'
+[RAG] Knowledge base context added to prompt
+Generating title for conversation 150 using model llama3.2:latest
+Calling LLM with 5 messages
+Calling LLM with model llama3.2:latest for title generation
+Calling LLM model llama3.2:latest with 5 messages (timeout: 5s)
+Calling Ollama with model: llama3.2:latest at host: http://localhost:11434
+Raw LLM response: 'Discussing Book Lists and Recommendations'
+Final generated title: Discussing Book Lists And Recommendations

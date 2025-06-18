@@ -1,0 +1,5 @@
+id,name,description,value
+1,Item 1,This is the first test item,10.5
+2,Item 2,Second test item with some text,25.75
+3,Item 3,Another test item with more details,100.0
+4,Item 4,Final test item for verification,50.25
