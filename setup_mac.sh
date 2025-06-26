@@ -1,6 +1,29 @@
 #!/bin/bash
 # MIDAS3 macOS Setup Script with ComfyUI
 
+# Exit on error
+set -e
+
+# Set architecture flags for Apple Silicon
+if [[ $(uname -m) == 'arm64' ]]; then
+    echo "Detected Apple Silicon (ARM64) architecture"
+    # Ensure we're using ARM64 Homebrew
+    if [[ $(which brew) != "/opt/homebrew"* ]]; then
+        echo "Configuring for ARM64 Homebrew..."
+        export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+    fi
+    export HOMEBREW_PREFIX="/opt/homebrew"
+else
+    echo "Detected Intel architecture"
+    export HOMEBREW_PREFIX="/usr/local"
+fi
+
+# Set Python and pip paths for ARM64
+PYTHON_BIN="$HOMEBREW_PREFIX/opt/python@3.10/bin/python3.10"
+PIP_BIN="$HOMEBREW_PREFIX/opt/python@3.10/bin/pip3.10"
+
+echo "Using Python from: $PYTHON_BIN"
+
 # Function to start services in new terminal windows
 start_in_terminal() {
     osascript -e "tell app \"Terminal\" to do script \"cd '$PWD' && $1\""
@@ -15,18 +38,26 @@ if ! command -v brew &> /dev/null; then
 fi
 
 # Install Python 3.10 if not installed
-if ! command -v python3.10 &> /dev/null; then
+if [ ! -f "$PYTHON_BIN" ]; then
     echo "Installing Python 3.10..."
     # Install Python using Homebrew with architecture flags for Apple Silicon
     arch -arm64 brew install python@3.10
-    # Add Python to PATH if not already present
-    export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"
-    echo 'export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"' >> ~/.zshrc
+    # Verify installation
+    if [ ! -f "$PYTHON_BIN" ]; then
+        echo "Failed to install Python 3.10 at $PYTHON_BIN"
+        exit 1
+    fi
+    # Add Python to PATH
+    echo "export PATH=\"$HOMEBREW_PREFIX/opt/python@3.10/bin:\$PATH\"" >> ~/.zshrc
     source ~/.zshrc
 fi
 
-# Ensure Python is in PATH for the rest of the script
-export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"
+# Verify Python architecture
+echo "Verifying Python installation..."
+"$PYTHON_BIN" -c "import platform; print(f'Python {platform.python_version()} ({platform.machine()})')"
+
+# Install required build tools
+arch -arm64 brew install cmake protobuf rust
 
 # Install Ollama
 if ! command -v ollama &> /dev/null; then
@@ -88,26 +119,32 @@ cd ComfyUI
 # Set up ComfyUI virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
     echo "Creating ComfyUI virtual environment with ARM Python..."
-    # Create virtual environment using the correct Python
-    python3.10 -m venv venv
+    # Create virtual environment using the ARM64 Python
+    /opt/homebrew/opt/python@3.10/bin/python3.10 -m venv venv
     
     # Activate the virtual environment
     source venv/bin/activate
     
     # Upgrade pip and install dependencies
     echo "Installing ComfyUI dependencies..."
-    python -m pip install --upgrade pip
+    "$PYTHON_BIN" -m pip install --upgrade pip
     
     # Install PyTorch with Metal Performance Shaders (MPS) for Apple Silicon
     echo "Installing PyTorch with MPS support for Apple Silicon..."
-    pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu
+    
+    # Install PyTorch with MPS support using the correct pip
+    "$PIP_BIN" install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu
+    
+    # Install specific versions known to work well with MPS
+    "$PIP_BIN" install torch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 --index-url https://download.pytorch.org/whl/cpu
     
     # Verify PyTorch MPS availability
     echo "Verifying PyTorch MPS support..."
-    python -c "import torch; print(f'PyTorch MPS available: {torch.backends.mps.is_available()}')"
+    "$PYTHON_BIN" -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'MPS available: {torch.backends.mps.is_available()}'); device = 'mps' if torch.backends.mps.is_available() else 'cpu'; print(f'Device: {device}')"
     
     # Install ComfyUI requirements
-    pip install -r requirements.txt
+    echo "Installing ComfyUI requirements..."
+    "$PIP_BIN" install -r requirements.txt
     
     # Install additional common nodes
     echo "Installing common custom nodes..."
