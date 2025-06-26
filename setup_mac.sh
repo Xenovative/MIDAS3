@@ -20,13 +20,11 @@ if ! command -v python3.10 &> /dev/null; then
     # Install Python using Homebrew with architecture flags for Apple Silicon
     arch -arm64 brew install python@3.10
     # Add Python to PATH if not already present
-    export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"
-    echo 'export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"' >> ~/.zshrc
-    source ~/.zshrc
+    if [[ ":$PATH:" != *"/opt/homebrew/opt/python@3.10/bin:"* ]]; then
+        echo 'export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"' >> ~/.zshrc
+        source ~/.zshrc
+    fi
 fi
-
-# Ensure Python is in PATH for the rest of the script
-export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"
 
 # Install Ollama
 if ! command -v ollama &> /dev/null; then
@@ -87,8 +85,7 @@ cd ComfyUI
 
 # Set up ComfyUI virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
-    echo "Creating ComfyUI virtual environment with ARM Python..."
-    # Create virtual environment using the correct Python
+    echo "Creating ComfyUI virtual environment..."
     python3.10 -m venv venv
     
     # Activate the virtual environment
@@ -96,22 +93,16 @@ if [ ! -d "venv" ]; then
     
     # Upgrade pip and install dependencies
     echo "Installing ComfyUI dependencies..."
-    python -m pip install --upgrade pip
+    pip install --upgrade pip
     
-    # Install PyTorch with Metal Performance Shaders (MPS) for Apple Silicon
-    echo "Installing PyTorch with MPS support for Apple Silicon..."
-    # Use the official PyTorch MPS build for Apple Silicon
-    pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu
-    
-    # Install additional required dependencies
-    pip install --pre torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/nightly/cpu
-    
-    # Install specific versions known to work well with MPS
-    pip install torch==2.2.2 torchvision==0.17.2 torchaudio==2.2.2 --index-url https://download.pytorch.org/whl/cpu
-    
-    # Verify PyTorch MPS availability
-    echo "Verifying PyTorch MPS support..."
-    python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'MPS available: {torch.backends.mps.is_available()}'); device = 'mps' if torch.backends.mps.is_available() else 'cpu'; print(f'Device: {device}')""
+    # Install PyTorch with CUDA support if available, otherwise CPU-only
+    if command -v nvcc &> /dev/null; then
+        echo "CUDA detected - installing PyTorch with CUDA support..."
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    else
+        echo "CUDA not detected - installing CPU-only PyTorch..."
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+    fi
     
     # Install ComfyUI requirements
     pip install -r requirements.txt
