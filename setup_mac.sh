@@ -20,11 +20,13 @@ if ! command -v python3.10 &> /dev/null; then
     # Install Python using Homebrew with architecture flags for Apple Silicon
     arch -arm64 brew install python@3.10
     # Add Python to PATH if not already present
-    if [[ ":$PATH:" != *"/opt/homebrew/opt/python@3.10/bin:"* ]]; then
-        echo 'export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"' >> ~/.zshrc
-        source ~/.zshrc
-    fi
+    export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"
+    echo 'export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"' >> ~/.zshrc
+    source ~/.zshrc
 fi
+
+# Ensure Python is in PATH for the rest of the script
+export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"
 
 # Install Ollama
 if ! command -v ollama &> /dev/null; then
@@ -86,8 +88,8 @@ cd ComfyUI
 # Set up ComfyUI virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
     echo "Creating ComfyUI virtual environment with ARM Python..."
-    # Use the ARM Python interpreter explicitly
-    /opt/homebrew/opt/python@3.10/bin/python3.10 -m venv venv
+    # Create virtual environment using the correct Python
+    python3.10 -m venv venv
     
     # Activate the virtual environment
     source venv/bin/activate
