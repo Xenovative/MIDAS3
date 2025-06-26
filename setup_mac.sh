@@ -85,24 +85,24 @@ cd ComfyUI
 
 # Set up ComfyUI virtual environment if it doesn't exist
 if [ ! -d "venv" ]; then
-    echo "Creating ComfyUI virtual environment..."
-    python3.10 -m venv venv
+    echo "Creating ComfyUI virtual environment with ARM Python..."
+    # Use the ARM Python interpreter explicitly
+    /opt/homebrew/opt/python@3.10/bin/python3.10 -m venv venv
     
     # Activate the virtual environment
     source venv/bin/activate
     
     # Upgrade pip and install dependencies
     echo "Installing ComfyUI dependencies..."
-    pip install --upgrade pip
+    python -m pip install --upgrade pip
     
-    # Install PyTorch with CUDA support if available, otherwise CPU-only
-    if command -v nvcc &> /dev/null; then
-        echo "CUDA detected - installing PyTorch with CUDA support..."
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-    else
-        echo "CUDA not detected - installing CPU-only PyTorch..."
-        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-    fi
+    # Install PyTorch with Metal Performance Shaders (MPS) for Apple Silicon
+    echo "Installing PyTorch with MPS support for Apple Silicon..."
+    pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cpu
+    
+    # Verify PyTorch MPS availability
+    echo "Verifying PyTorch MPS support..."
+    python -c "import torch; print(f'PyTorch MPS available: {torch.backends.mps.is_available()}')"
     
     # Install ComfyUI requirements
     pip install -r requirements.txt
