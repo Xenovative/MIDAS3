@@ -2,7 +2,8 @@ name: midas3-llm
 channels:
   - defaults
 dependencies:
-  - python=3.9
+  - python=3.9  # [not osx_arm64]
+  - python=3.9.* *_cpython_macosx_11_0_arm64  # [osx_arm64]
   - pip
   - pandas
   - openpyxl

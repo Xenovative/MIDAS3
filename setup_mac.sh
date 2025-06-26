@@ -17,7 +17,13 @@ fi
 # Install Python 3.10 if not installed
 if ! command -v python3.10 &> /dev/null; then
     echo "Installing Python 3.10..."
-    brew install python@3.10
+    # Install Python using Homebrew with architecture flags for Apple Silicon
+    arch -arm64 brew install python@3.10
+    # Add Python to PATH if not already present
+    if [[ ":$PATH:" != *"/opt/homebrew/opt/python@3.10/bin:"* ]]; then
+        echo 'export PATH="/opt/homebrew/opt/python@3.10/bin:$PATH"' >> ~/.zshrc
+        source ~/.zshrc
+    fi
 fi
 
 # Install Ollama
