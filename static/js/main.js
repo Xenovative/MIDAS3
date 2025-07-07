@@ -4131,20 +4131,37 @@ async function uploadKnowledgeFiles(botId, files) {
         }
 
         // First, upload the files
-        const response = await fetch(`/api/bots/${botId}/knowledge`, {
-            method: 'POST',
-            body: formData
-        });
+        let response;
+        try {
+            response = await fetch(`/api/bots/${botId}/knowledge`, {
+                method: 'POST',
+                body: formData
+            });
 
-        if (!response.ok) {
-            let errorMsg = 'Failed to upload files';
-            try {
-                const errorData = await response.json();
-                errorMsg = errorData.message || errorMsg;
-            } catch (e) {
-                console.error('Error parsing error response:', e);
+            if (!response.ok) {
+                // Handle 413 specifically
+                if (response.status === 413) {
+                    throw new Error('File too large (max 100MB)');
+                }
+                
+                // Try to parse error response
+                let errorMsg = 'Failed to upload files';
+                try {
+                    const errorData = await response.json();
+                    errorMsg = errorData.detail || errorData.message || errorMsg;
+                } catch (e) {
+                    console.error('Error parsing error response:', e);
+                    // If we can't parse the error, include the status text
+                    errorMsg = `${response.status} ${response.statusText}`;
+                }
+                throw new Error(errorMsg);
             }
-            throw new Error(errorMsg);
+        } catch (error) {
+            // Handle network errors or JSON parsing errors
+            if (error.message.includes('Failed to fetch') || error instanceof TypeError) {
+                throw new Error('Network error: Could not connect to server');
+            }
+            throw error; // Re-throw other errors
         }
         
         // Update progress bar to 50% for upload complete
@@ -4224,19 +4241,37 @@ async function uploadKnowledgeFiles(botId, files) {
             throw new Error(data.message || 'Unknown error processing files');
         }
     } catch (error) {
+        console.error('Upload error:', error);
+        
+        // Default error message
         let errorMsg = 'Error uploading files';
         
-        // Handle 413 payload too large
-        if (error.message && error.message.includes('413')) {
-            errorMsg = 'File too large (max 100MB)';
+        // Handle specific error cases
+        if (error.message.includes('File too large') || error.message.includes('413')) {
+            errorMsg = 'File too large. Maximum file size is 100MB';
         } 
-        // Handle HTML error responses (when server returns HTML error page)
-        else if (error instanceof SyntaxError && error.message.includes('Unexpected token')) {
-            errorMsg = 'Server rejected upload - file may be too large';
+        else if (error.message.includes('Network error')) {
+            errorMsg = 'Network error: Could not connect to server';
+        }
+        // Handle server-side validation errors
+        else if (error.message) {
+            errorMsg = error.message;
         }
         
-        console.error('Upload error:', error);
+        // Update UI with error
+        if (progressText) {
+            progressText.textContent = `Error: ${errorMsg}`;
+            progressText.classList.add('error');
+        }
+        
+        // Show error notification
         showNotification(errorMsg, 'error');
+        
+        // Reset progress bar if it exists
+        if (progressBar) {
+            progressBar.style.width = '0%';
+            progressBar.classList.add('error');
+        }
     }
 }
 
