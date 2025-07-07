@@ -4072,12 +4072,19 @@ async function uploadKnowledgeFiles(botId, files) {
     console.log('Valid files to upload:', validFiles);
     
     const formData = new FormData();
-    validFiles.forEach((file, index) => {
-        formData.append(`file${index}`, file);
+    
+    // Append files as an array with 'files[]' key
+    validFiles.forEach(file => {
+        formData.append('files[]', file);
     });
     
     // Add bot ID to form data
     formData.append('bot_id', botId);
+    
+    // Log form data for debugging
+    for (let pair of formData.entries()) {
+        console.log(pair[0] + ': ', pair[1]);
+    }
 
     // Initialize progress UI
     const progressContainer = document.getElementById('upload-progress-container');
