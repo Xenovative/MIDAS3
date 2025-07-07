@@ -4073,17 +4073,22 @@ async function uploadKnowledgeFiles(botId, files) {
     
     const formData = new FormData();
     
-    // Append files as an array with 'files[]' key
+    // Append files with 'file' key (server expects 'file' for each file)
     validFiles.forEach(file => {
-        formData.append('files[]', file);
+        formData.append('file', file);
     });
     
     // Add bot ID to form data
     formData.append('bot_id', botId);
     
-    // Log form data for debugging
-    for (let pair of formData.entries()) {
-        console.log(pair[0] + ': ', pair[1]);
+    // Debug: Log form data keys and values
+    console.log('FormData contents:');
+    for (let [key, value] of formData.entries()) {
+        if (value instanceof File) {
+            console.log(`${key}: File(${value.name}, ${value.size} bytes, ${value.type})`);
+        } else {
+            console.log(`${key}:`, value);
+        }
     }
 
     // Initialize progress UI
