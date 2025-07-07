@@ -4021,28 +4021,63 @@ async function reindexKnowledgeFiles(botId) {
 
 // Upload knowledge files
 async function uploadKnowledgeFiles(botId, files) {
-    if (!botId || !files || files.length === 0) {
+    console.log('Uploading files:', files);
+    
+    if (!botId) {
+        showNotification('No bot selected', 'error');
+        return;
+    }
+    
+    if (!files || files.length === 0) {
         showNotification('No files selected', 'error');
         return;
     }
 
-    // Validate files
-    const validFiles = Array.from(files).filter(file => 
-        file.size > 0 && 
-        file.size <= 100 * 1024 * 1024 && // 100MB max
-        ['.txt', '.pdf', '.md', '.xml', '.json', '.csv', '.xls', '.xlsx']
-            .some(ext => file.name.toLowerCase().endsWith(ext))
-    );
+    // Convert FileList to array and validate files
+    const fileArray = Array.from(files);
+    console.log('Files to process:', fileArray);
+    
+    const validFiles = fileArray.filter(file => {
+        if (!file || !(file instanceof File)) {
+            console.error('Invalid file object:', file);
+            return false;
+        }
+        
+        const isValidExtension = ['.txt', '.pdf', '.md', '.xml', '.json', '.csv', '.xls', '.xlsx']
+            .some(ext => file.name.toLowerCase().endsWith(ext));
+            
+        if (!isValidExtension) {
+            console.error('Invalid file extension:', file.name);
+            return false;
+        }
+        
+        if (file.size === 0) {
+            console.error('File is empty:', file.name);
+            return false;
+        }
+        
+        if (file.size > 100 * 1024 * 1024) { // 100MB max
+            console.error('File too large:', file.name);
+            return false;
+        }
+        
+        return true;
+    });
 
     if (validFiles.length === 0) {
         showNotification('No valid files to upload. Supported formats: .txt, .pdf, .md, .xml, .json, .csv, .xls, .xlsx (max 100MB)', 'error');
         return;
     }
 
+    console.log('Valid files to upload:', validFiles);
+    
     const formData = new FormData();
-    validFiles.forEach(file => {
-        formData.append('files', file);
+    validFiles.forEach((file, index) => {
+        formData.append(`file${index}`, file);
     });
+    
+    // Add bot ID to form data
+    formData.append('bot_id', botId);
 
     // Initialize progress UI
     const progressContainer = document.getElementById('upload-progress-container');
