@@ -3466,9 +3466,11 @@ function initializeBotManagement() {
     });
     
     // Handle bot form submission
-    botForm.addEventListener('submit', function(event) {
+    botForm.addEventListener('submit', async function(event) {
         event.preventDefault();
-        saveBot();
+        event.stopPropagation();
+        await saveBot();
+        return false;
     });
     
     // Handle knowledge file upload button
