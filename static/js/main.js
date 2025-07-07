@@ -4019,23 +4019,42 @@ async function reindexKnowledgeFiles(botId) {
     }
 }
 
+// Format file size to human readable format
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
 // Upload knowledge files
 async function uploadKnowledgeFiles(botId, files) {
-    console.log('Uploading files:', files);
+    console.log('=== Starting file upload ===');
+    console.log('Bot ID:', botId);
+    console.log('Files to upload:', files);
     
     if (!botId) {
-        showNotification('No bot selected', 'error');
+        const errorMsg = 'No bot selected';
+        console.error(errorMsg);
+        showNotification(errorMsg, 'error');
         return;
     }
     
     if (!files || files.length === 0) {
-        showNotification('No files selected', 'error');
+        const errorMsg = 'No files selected';
+        console.error(errorMsg);
+        showNotification(errorMsg, 'error');
         return;
     }
 
     // Convert FileList to array and validate files
     const fileArray = Array.from(files);
-    console.log('Files to process:', fileArray);
+    console.log('Processing files:', fileArray.map(f => ({
+        name: f.name,
+        size: f.size,
+        type: f.type
+    })));
     
     const validFiles = fileArray.filter(file => {
         if (!file || !(file instanceof File)) {
@@ -4043,11 +4062,12 @@ async function uploadKnowledgeFiles(botId, files) {
             return false;
         }
         
-        const isValidExtension = ['.txt', '.pdf', '.md', '.xml', '.json', '.csv', '.xls', '.xlsx']
-            .some(ext => file.name.toLowerCase().endsWith(ext));
+        const fileExt = file.name.split('.').pop().toLowerCase();
+        const validExtensions = ['txt', 'pdf', 'md', 'xml', 'json', 'csv', 'xls', 'xlsx'];
+        const isValidExtension = validExtensions.includes(fileExt);
             
         if (!isValidExtension) {
-            console.error('Invalid file extension:', file.name);
+            console.error(`Invalid file extension: ${file.name} (valid: ${validExtensions.join(', ')})`);
             return false;
         }
         
@@ -4056,8 +4076,9 @@ async function uploadKnowledgeFiles(botId, files) {
             return false;
         }
         
-        if (file.size > 100 * 1024 * 1024) { // 100MB max
-            console.error('File too large:', file.name);
+        const maxSize = 100 * 1024 * 1024; // 100MB
+        if (file.size > maxSize) {
+            console.error(`File too large: ${file.name} (${(file.size / (1024 * 1024)).toFixed(2)}MB > 100MB)`);
             return false;
         }
         
@@ -4065,24 +4086,27 @@ async function uploadKnowledgeFiles(botId, files) {
     });
 
     if (validFiles.length === 0) {
-        showNotification('No valid files to upload. Supported formats: .txt, .pdf, .md, .xml, .json, .csv, .xls, .xlsx (max 100MB)', 'error');
+        const errorMsg = 'No valid files to upload. Supported formats: .txt, .pdf, .md, .xml, .json, .csv, .xls, .xlsx (max 100MB)';
+        console.error(errorMsg);
+        showNotification(errorMsg, 'error');
         return;
     }
 
-    console.log('Valid files to upload:', validFiles);
+    console.log(`Found ${validFiles.length} valid files out of ${files.length}`);
     
     const formData = new FormData();
     
-    // Append files with 'file' key (server expects 'file' for each file)
-    validFiles.forEach(file => {
-        formData.append('file', file);
+    // Append files with 'files' key (trying both formats to see what the server expects)
+    validFiles.forEach((file, index) => {
+        formData.append('files', file);  // Try with 'files' array
+        formData.append(`file_${index}`, file);  // Also try with individual file_0, file_1, etc.
     });
     
     // Add bot ID to form data
     formData.append('bot_id', botId);
     
     // Debug: Log form data keys and values
-    console.log('FormData contents:');
+    console.log('=== FormData contents ===');
     for (let [key, value] of formData.entries()) {
         if (value instanceof File) {
             console.log(`${key}: File(${value.name}, ${value.size} bytes, ${value.type})`);
@@ -4090,24 +4114,21 @@ async function uploadKnowledgeFiles(botId, files) {
             console.log(`${key}:`, value);
         }
     }
-
-    // Initialize progress UI
-    const progressContainer = document.getElementById('upload-progress-container');
-    const progressBar = progressContainer?.querySelector('.progress-bar');
-    const progressText = progressContainer?.querySelector('.progress-status');
-    const processingDetails = progressContainer?.querySelector('.progress-details');
     
-    if (progressContainer) {
-        progressContainer.style.display = 'block';
-        if (progressBar) progressBar.style.width = '0%';
-        if (progressText) progressText.textContent = 'Starting upload...';
-        if (processingDetails) processingDetails.innerHTML = '';
-    }
-
     try {
-        // Show processing UI
-        if (progressBar) progressBar.style.width = '10%';
-        if (progressText) progressText.textContent = 'Preparing upload...';
+        // Initialize progress UI
+        const progressContainer = document.getElementById('upload-progress-container');
+        const progressBar = progressContainer?.querySelector('.progress-bar');
+        const progressText = progressContainer?.querySelector('.progress-status');
+        const fileProgressList = progressContainer?.querySelector('.file-progress-list');
+        
+        // Show progress container
+        if (progressContainer) {
+            progressContainer.style.display = 'block';
+            if (progressBar) progressBar.style.width = '0%';
+            if (progressText) progressText.textContent = 'Preparing upload...';
+            if (fileProgressList) fileProgressList.innerHTML = '';
+        }
 
         // First, upload the files
         const response = await fetch(`/api/bots/${botId}/knowledge`, {
