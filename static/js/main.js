@@ -3806,6 +3806,7 @@ async function saveBot() {
         };
         
         let response;
+        let data;
         
         if (botId) {
             // Update existing bot
@@ -3816,6 +3817,15 @@ async function saveBot() {
                 },
                 body: JSON.stringify(botData)
             });
+            data = await response.json();
+            
+            if (data.status === 'success') {
+                showNotification('Bot updated successfully');
+                loadBots();
+                showBotList();
+            } else {
+                showNotification(`Error updating bot: ${data.message}`, 'error');
+            }
         } else {
             // Create new bot
             response = await fetch('/api/bots', {
@@ -3826,7 +3836,7 @@ async function saveBot() {
                 body: JSON.stringify(botData)
             });
             
-            const data = await response.json();
+            data = await response.json();
             
             if (data.status === 'success') {
                 showNotification('Bot created successfully');
