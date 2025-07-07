@@ -4058,8 +4058,8 @@ async function uploadKnowledgeFiles(botId, files) {
         
         // Update progress bar to 50% for upload complete
         if (progressContainer) {
-            progressContainer.querySelector('.progress-bar').style.width = '50%';
-            progressContainer.querySelector('.progress-status').textContent = 'Processing documents...';
+            if (progressBar) progressBar.style.width = '50%';
+            if (progressText) progressText.textContent = 'Processing documents...';
         }
         
         const data = await response.json();
@@ -4070,12 +4070,14 @@ async function uploadKnowledgeFiles(botId, files) {
                 const stats = data.processing_stats;
                 
                 // Update progress bar to 100%
-                progressContainer.querySelector('.progress-bar').style.width = '100%';
-                progressContainer.querySelector('.progress-status').textContent = 'Processing complete!';
+                if (progressBar) progressBar.style.width = '100%';
+                if (progressText) progressText.textContent = 'Processing complete!';
                 
                 // Update stats
-                progressContainer.querySelector('.chunks-processed').textContent = stats.total_chunks;
-                progressContainer.querySelector('.processing-time').textContent = stats.processing_time.toFixed(1);
+                const chunksProcessed = progressContainer.querySelector('.chunks-processed');
+                const processingTime = progressContainer.querySelector('.processing-time');
+                if (chunksProcessed) chunksProcessed.textContent = stats.total_chunks;
+                if (processingTime) processingTime.textContent = stats.processing_time.toFixed(1);
                 
                 // Update file progress items
                 if (stats.file_stats && stats.file_stats.length > 0) {
