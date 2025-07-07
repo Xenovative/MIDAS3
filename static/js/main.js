@@ -4102,11 +4102,9 @@ async function uploadKnowledgeFiles(botId, files) {
         formData.append(`file_${index}`, file);  // Also try with individual file_0, file_1, etc.
     });
     
-    // Add bot ID to form data
-    formData.append('bot_id', botId);
-    
     // Debug: Log form data keys and values
     console.log('=== FormData contents ===');
+    console.log('Bot ID from URL:', botId);
     for (let [key, value] of formData.entries()) {
         if (value instanceof File) {
             console.log(`${key}: File(${value.name}, ${value.size} bytes, ${value.type})`);
@@ -4133,10 +4131,18 @@ async function uploadKnowledgeFiles(botId, files) {
         // First, upload the files
         let response;
         try {
-            response = await fetch(`/api/bots/${botId}/knowledge`, {
+            // Log the full URL being called
+            const uploadUrl = `/api/bots/${botId}/knowledge`;
+            console.log('Uploading to URL:', uploadUrl);
+            
+            // Make the fetch request with credentials included
+            response = await fetch(uploadUrl, {
                 method: 'POST',
-                body: formData
+                body: formData,
+                credentials: 'include'  // Important for sending cookies/session
             });
+            
+            console.log('Upload response status:', response.status);
 
             if (!response.ok) {
                 // Handle 413 specifically
@@ -4146,14 +4152,30 @@ async function uploadKnowledgeFiles(botId, files) {
                 
                 // Try to parse error response
                 let errorMsg = 'Failed to upload files';
+                let errorDetails = '';
                 try {
-                    const errorData = await response.json();
-                    errorMsg = errorData.detail || errorData.message || errorMsg;
+                    // Try to read the response as text first
+                    const errorText = await response.text();
+                    console.error('Error response text:', errorText);
+                    
+                    // Try to parse as JSON
+                    try {
+                        const errorData = JSON.parse(errorText);
+                        errorMsg = errorData.detail || errorData.message || errorMsg;
+                        if (errorData.details) {
+                            errorDetails = JSON.stringify(errorData.details);
+                        }
+                    } catch (e) {
+                        // If not JSON, use the raw text
+                        errorMsg = errorText || errorMsg;
+                    }
                 } catch (e) {
-                    console.error('Error parsing error response:', e);
-                    // If we can't parse the error, include the status text
+                    console.error('Error reading error response:', e);
+                    // If we can't read the response, include the status text
                     errorMsg = `${response.status} ${response.statusText}`;
                 }
+                
+                console.error('Upload error:', errorMsg, errorDetails ? `\nDetails: ${errorDetails}` : '');
                 throw new Error(errorMsg);
             }
         } catch (error) {

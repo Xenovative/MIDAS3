@@ -75,11 +75,69 @@ class Bot:
     @classmethod
     def get(cls, bot_id):
         """Get bot by ID"""
-        bot_file = os.path.join(BOTS_DIR, f"{bot_id}.json")
-        if not os.path.exists(bot_file):
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Remove any file extension if present
+        if bot_id and isinstance(bot_id, str) and bot_id.endswith('.json'):
+            bot_id = bot_id[:-5]
+        
+        if not bot_id or not isinstance(bot_id, str):
+            logger.error(f"Invalid bot_id provided: {bot_id} (type: {type(bot_id)})")
             return None
-        with open(bot_file, 'r') as f:
-            return cls.from_dict(json.load(f))
+            
+        bot_file = os.path.join(BOTS_DIR, f"{bot_id}.json")
+        
+        # Debug logging
+        logger.info(f"Looking for bot file: {bot_file}")
+        logger.info(f"BOTS_DIR exists: {os.path.exists(BOTS_DIR)}")
+        logger.info(f"BOTS_DIR path: {os.path.abspath(BOTS_DIR)}")
+        
+        if not os.path.exists(BOTS_DIR):
+            logger.error(f"BOTS_DIR does not exist: {BOTS_DIR}")
+            return None
+            
+        if not os.path.exists(bot_file):
+            logger.warning(f"Bot file not found: {bot_file}")
+            # List all files in BOTS_DIR for debugging
+            try:
+                files = os.listdir(BOTS_DIR)
+                logger.info(f"Files in BOTS_DIR: {files}")
+                json_files = [f for f in files if f.endswith('.json')]
+                logger.info(f"JSON files in BOTS_DIR: {json_files}")
+                
+                # Try case-insensitive search
+                for f in files:
+                    if f.lower() == f"{bot_id}.json".lower():
+                        logger.warning(f"Found case-insensitive match: {f} (requested: {bot_id}.json)")
+                        bot_file = os.path.join(BOTS_DIR, f)
+                        break
+                else:
+                    return None  # No match found
+                    
+            except Exception as e:
+                logger.error(f"Error listing BOTS_DIR: {str(e)}", exc_info=True)
+                return None
+        
+        try:
+            logger.info(f"Attempting to load bot file: {bot_file}")
+            with open(bot_file, 'r', encoding='utf-8') as f:
+                bot_data = json.load(f)
+                
+            if not isinstance(bot_data, dict):
+                logger.error(f"Bot file {bot_file} does not contain a JSON object")
+                return None
+                
+            logger.info(f"Successfully loaded bot: {bot_data.get('name', 'Unnamed')} (ID: {bot_data.get('id', 'Unknown')})")
+            return cls.from_dict(bot_data)
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"Error decoding JSON from {bot_file}: {str(e)}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error loading bot file {bot_file}: {str(e)}", exc_info=True)
+            return None
     
     @classmethod
     def get_all(cls):
@@ -105,3 +163,11 @@ class Bot:
         kb_path = os.path.join(KNOWLEDGE_DIR, self.id)
         os.makedirs(kb_path, exist_ok=True)
         return kb_path
+        
+    def save(self):
+        """Save bot to file"""
+        self.updated_at = datetime.now().isoformat()
+        bot_file = os.path.join(BOTS_DIR, f"{self.id}.json")
+        with open(bot_file, 'w') as f:
+            json.dump(self.to_dict(), f, indent=2)
+        return self

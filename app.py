@@ -3056,9 +3056,40 @@ def delete_bot(bot_id):
 def upload_knowledge_files(bot_id):
     """Upload knowledge files for a bot"""
     try:
-        app.logger.info(f'Upload request received for bot {bot_id}')
+        app.logger.info('='*50)
+        app.logger.info(f'Upload request received for bot_id: {bot_id}')
+        app.logger.info(f'Request headers: {dict(request.headers)}')
+        app.logger.info(f'Request form data: {request.form}')
         app.logger.info(f'Request files: {request.files}')
         app.logger.info(f'Content length: {request.content_length}')
+        
+        # Log all files in the BOTS_DIR for debugging
+        if os.path.exists(BOTS_DIR):
+            bot_files = [f for f in os.listdir(BOTS_DIR) if f.endswith('.json')]
+            app.logger.info(f'Found {len(bot_files)} bot files in {BOTS_DIR}: {bot_files}')
+        else:
+            app.logger.error(f'BOTS_DIR does not exist: {BOTS_DIR}')
+            return jsonify({
+                'status': 'error',
+                'message': 'Bots directory not found',
+                'details': f'Directory not found: {BOTS_DIR}'
+            }), 500
+        
+        # Debug: Check if BOTS_DIR exists and is writable
+        app.logger.info(f'BOTS_DIR: {BOTS_DIR}')
+        app.logger.info(f'BOTS_DIR exists: {os.path.exists(BOTS_DIR)}')
+        app.logger.info(f'BOTS_DIR writable: {os.access(BOTS_DIR, os.W_OK)}')
+        
+        # Debug: List all bot files
+        if os.path.exists(BOTS_DIR):
+            bot_files = [f for f in os.listdir(BOTS_DIR) if f.endswith('.json')]
+            app.logger.info(f'Found {len(bot_files)} bot files: {bot_files}')
+        else:
+            app.logger.error(f'BOTS_DIR does not exist: {BOTS_DIR}')
+            return jsonify({
+                'status': 'error',
+                'message': f'Bots directory not found: {BOTS_DIR}'
+            }), 500
 
         bot = Bot.get(bot_id)
         if not bot:
@@ -3067,18 +3098,45 @@ def upload_knowledge_files(bot_id):
                 'message': 'Bot not found'
             }), 404
 
+        # Check if files were provided
         if 'files' not in request.files:
+            app.logger.error('No files part in the request')
             return jsonify({
                 'status': 'error',
-                'message': 'No files provided'
+                'message': 'No files provided',
+                'details': 'The request did not contain any files'
+            }), 400
+            
+        files = request.files.getlist('files')
+        if not files or all(not file.filename for file in files):
+            app.logger.error('No files selected or empty filenames')
+            return jsonify({
+                'status': 'error',
+                'message': 'No files selected',
+                'details': 'Please select one or more files to upload'
             }), 400
 
-        files = request.files.getlist('files')
         saved_files = []
 
         # Create knowledge base directory if it doesn't exist
-        kb_dir = bot.get_knowledge_base_path()
-        os.makedirs(kb_dir, exist_ok=True)
+        try:
+            kb_dir = bot.get_knowledge_base_path()
+            app.logger.info(f'Creating/verifying knowledge base directory: {kb_dir}')
+            os.makedirs(kb_dir, exist_ok=True)
+            
+            # Verify directory is writable
+            test_file = os.path.join(kb_dir, '.test_write')
+            with open(test_file, 'w') as f:
+                f.write('test')
+            os.remove(test_file)
+                
+        except Exception as e:
+            app.logger.error(f'Error creating/accessing knowledge base directory: {str(e)}', exc_info=True)
+            app.logger.error(f'Error creating knowledge base directory: {str(e)}')
+            return jsonify({
+                'status': 'error',
+                'message': f'Failed to create knowledge base directory: {str(e)}'
+            }), 500
 
         for file in files:
             if file and file.filename:
